@@ -7,7 +7,7 @@ typedef struct Edge{
     struct Edge *next;//下一条边
 }Edge;
 typedef struct Vertex{
-    
+    int id;
     char data;//该点的名称
     Edge *first;//连接的第一条边
 
