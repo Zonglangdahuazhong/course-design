@@ -24,8 +24,8 @@ void addVertex(Graph *c,char data)//加点
 void addEdge(Graph *c,int start, int end,int weight)//加边
 {   Edge *p;//创建一个边节点
     p=(Edge*)malloc(sizeof(Edge));//申请一块内存
-    p-> index=end;
-    p-> weight= weight;
+    p-> index=end;//边的终点
+    p-> weight= weight;//边长
     p->next= c->vertices[start].first;
     c->vertices[start].first=p;//头插法，此处生成的链表会把新插入的放在最前面。
     //上面实现从A->B，下面实现从B->A
