@@ -1,5 +1,5 @@
 #ifndef CMAP_H
-#define CMAP_H
+#define CMAP_H//进行头文件保护
 #define MAX 100//定义一个MAX
 typedef struct Edge{
     int index;// 指向哪个点
