@@ -44,8 +44,27 @@ printf("max_x = %.8f\n", mbr.max_x);
 printf("min_y = %.8f\n", mbr.min_y);
 printf("max_y = %.8f\n", mbr.max_y);
 
+  MBR mbr2=order_mbr(&orders[1], graph);
+printf("Order %d:\n", orders[1].id);
+printf("min_x = %.8f\n", mbr2.min_x);
+printf("max_x = %.8f\n", mbr2.max_x);
+printf("min_y = %.8f\n", mbr2.min_y);
+printf("max_y = %.8f\n", mbr2.max_y);
+
+
+
+MBR mbr3 = mbr_combine(mbr, mbr2);
+printf("Combined MBR:\n");
+printf("min_x = %.8f\n", mbr3.min_x);
+printf("max_x = %.8f\n", mbr3.max_x);
+printf("min_y = %.8f\n", mbr3.min_y);
+printf("max_y = %.8f\n", mbr3.max_y);
+
+
     // 4. 释放内存
     free_orders(orders);
+  
+
   
 
     return 0;

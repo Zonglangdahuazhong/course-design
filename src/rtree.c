@@ -18,3 +18,21 @@ int i = order->pointid - 1;//数组下标与我随机生成的订单的节点标
 
     return mbr;
 }
+
+//接下来实现mbr的合并  最小外包矩形
+
+
+MBR mbr_combine(MBR a, MBR b)
+{
+MBR result;
+
+    result.min_x = (a.min_x < b.min_x) ? a.min_x : b.min_x;
+    result.min_y = (a.min_y < b.min_y) ? a.min_y : b.min_y;
+    result.max_x = (a.max_x > b.max_x) ? a.max_x : b.max_x;
+    result.max_y = (a.max_y > b.max_y) ? a.max_y : b.max_y;
+
+    return result;
+
+
+
+}//小的是两者之中最小的，大的是两者之中最大的

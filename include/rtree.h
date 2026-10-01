@@ -11,5 +11,5 @@ typedef struct {
 } MBR;
 
 MBR order_mbr(const Order *order, const Graph *graph);
-
+MBR mbr_combine(MBR a, MBR b);
 #endif
