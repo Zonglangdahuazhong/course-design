@@ -1,6 +1,38 @@
 #include "map.h"//链接上map.h
 #include <stdio.h>
 #include <stdlib.h>
+// 读图函数
+int loadMap(Graph *g,char *filename){
+    FILE *fp=fopen(filename,"r");
+    if(fp==NULL){
+        printf("文件打开失败\n");
+        return 0;
+    }
+    int vertexNum;
+    int edgeNum;
+    fscanf(fp,"%d %d",&vertexNum,&edgeNum);//读取点总数和边总数
+    initGraph(g);
+    //读取点
+    for(int i=0;i<vertexNum;i++){
+        int id;
+        double x;
+        double y;
+        fscanf(fp,"%d %lf %lf",&id,&x,&y);
+        addVertex(g,x,y);
+    }
+    //读取边
+    for (int i=0;i<edgeNum;i++){
+        int start ;
+        int end ;
+        int weight;
+         
+        fscanf(fp,"%d %d %d",&start,&end, &weight);
+        addEdge(g,start-1,end-1,weight);
+    }
+    fclose(fp);
+    return 1;
+
+}
 void initGraph(Graph *c)//初始化图c
 {
     c->vertexCount =0;
@@ -10,7 +42,7 @@ void initGraph(Graph *c)//初始化图c
         c->vertices[i].first=NULL;
     }
 }//初始点和边数量都为零，每个点的第一条边为空。
-void addVertex(Graph *c,char data)//加点
+void addVertex(Graph *c,double x,double y)
 {
     if(c->vertexCount>=MAX){
         return;
@@ -38,20 +70,37 @@ void addEdge(Graph *c,int start, int end,int weight)//加边
     c->vertices[end].first=p;
     c->edgeCount++;
 }
-void printGraph(Graph *c)//打印图
-{   for (int i=0;i<c->vertexCount;i++)
+void printGraph(Graph *c)
+{
+
+    for(int i=0;i<c->vertexCount;i++)
     {
-        printf("%c:",c->vertices[i].data);
+
+        printf("点%d(%.2lf,%.2lf):",
+               c->vertices[i].id,
+               c->vertices[i].x,
+               c->vertices[i].y);
+
+
 
         Edge *p=c->vertices[i].first;
 
+
         while(p!=NULL)
         {
-            printf("->%c(%d)",c->vertices[p->index].data,p->weight);
+
+            printf(" -> 点%d 距离%d",
+                   c->vertices[p->index].id,
+                   p->weight);
+
+
             p=p->next;
-     }   
+
+        }
+
+
         printf("\n");
-    } 
-   
+
+    }
 
 }
