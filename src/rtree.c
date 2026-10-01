@@ -214,12 +214,13 @@ int choose_group(
     return 1;
 }  // 0则插入第一个   1则插入第二个
 
+  
+
 
 //已经吧基本函数完成   接下来实现二次分裂
 
 
-void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b
-)
+void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b)
 {
     int seed1;
     int seed2;
@@ -240,6 +241,8 @@ void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode
     );
 
     // 4. 把剩余 Entry 分配到两个 Group
+
+    int assigned = 2;
     for (int i = 0; i < count; i++) {
 
         // Seed 已经处理过
@@ -247,6 +250,20 @@ void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode
             continue;
         }
 
+
+ int remaining = count - assigned;
+ // A 必须拿剩余 Entry，否则达不到最小数量
+    if ((*group_a)->count + remaining == MIN_ENTRIES) {
+
+        insert_entry(*group_a, entries[i]);
+    }
+    // B 必须拿剩余 Entry，否则达不到最小数量
+    else if ((*group_b)->count + remaining == MIN_ENTRIES) {
+
+        insert_entry(*group_b, entries[i]);
+    }
+
+else{
         int group = choose_group(*group_a,*group_b,&entries[i]);
 
         if (group == 0) {
@@ -256,6 +273,11 @@ insert_entry(*group_a,entries[i]);
             insert_entry(*group_b,entries[i]);
         }
     }
+
+    assigned++;
+}
+
+
 }
 
 //  二次分裂算法的结构
@@ -290,3 +312,4 @@ insert_entry(*group_a,entries[i]);
 
 
 */
+// 为了使两个node都有足够的 entries  应该规定一个最小数量

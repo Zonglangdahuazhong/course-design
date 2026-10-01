@@ -1,6 +1,7 @@
 #ifndef RTREE_H
 #define RTREE_H
 #define MAX_ENTRIES 4
+#define MIN_ENTRIES 2
 #include "graph.h"
 #include "order.h"
 
@@ -26,7 +27,7 @@ typedef struct{
  MBR mbr;
     void *child;
 }RTreeEntry;
-//孩子节点对应的索引  并且要注意这里用的是void 因为它可能指向孩子节点（非叶子节点）  也可能是Order(叶子节点）两者并不相同 故用void
+//孩子节点对应的索引  并且要注意这里用的是void 因为它可能指向孩子节点（非叶子节点）  也可能是Order(叶子节点）两者并不相同 故用void  
 typedef struct RTreeNode {
 
     int is_leaf;
