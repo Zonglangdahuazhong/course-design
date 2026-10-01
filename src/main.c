@@ -60,6 +60,13 @@ printf("max_x = %.8f\n", mbr3.max_x);
 printf("min_y = %.8f\n", mbr3.min_y);
 printf("max_y = %.8f\n", mbr3.max_y);
 
+if(is_over(mbr, mbr2)) {
+    printf("MBR1 和 MBR2 相交\n");
+} else {
+    printf("MBR1 和 MBR2 不相交\n");
+}
+
+
 
     // 4. 释放内存
     free_orders(orders);

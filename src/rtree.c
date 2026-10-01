@@ -36,3 +36,19 @@ MBR result;
 
 
 }//小的是两者之中最小的，大的是两者之中最大的
+
+
+//接下来判断矩形是否相交  无非四种情况  A在B右 A在B左 A在B上 A在B下 分别对应下边if里的条件
+
+int is_over(MBR a, MBR b)
+  { 
+ 
+    if(a.min_x >b.max_x || a.max_x < b.min_x || a.min_y > b.max_y || a.max_y < b.min_y)
+    {
+        return 0; // 不相交
+    }
+    else
+    {
+        return 1; // 相交
+    }
+}

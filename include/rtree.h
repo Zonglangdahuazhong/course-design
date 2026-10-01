@@ -12,4 +12,5 @@ typedef struct {
 
 MBR order_mbr(const Order *order, const Graph *graph);
 MBR mbr_combine(MBR a, MBR b);
+int is_over(MBR a, MBR b);
 #endif
