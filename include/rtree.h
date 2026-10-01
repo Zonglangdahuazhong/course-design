@@ -52,7 +52,10 @@ MBR mbr_combine(MBR a, MBR b);
 int is_over(MBR a, MBR b);
 RTreeNode *create_node(int is_leaf);
 void insert_order(RTreeNode *node, const Order *order, const Graph *graph);
-#endif
+double R_area(MBR mbr);
+double mbr_waste(MBR a, MBR b);     
+void pick_seeds(RTreeEntry *entries, int count, int *seed1, int *seed2);
+#endif              
 
 
 /*

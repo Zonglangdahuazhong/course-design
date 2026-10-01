@@ -84,6 +84,40 @@ void insert_order(RTreeNode *node, const Order *order, const Graph *graph)
     node->count++;
 }
 
+//接下来实现分裂算法   我选择二次分裂 后边有时间优化就尝试一下R*
+/*
+
+两两组合计算“浪费面积”，把组合后浪费面积最大的一对做“种子”，剩余条目逐个分配。
+
+*/
+//所以先计算面积
+double R_area(MBR mbr)
+{
+    return (mbr.max_x - mbr.min_x) * (mbr.max_y - mbr.min_y);
+}
+//计算浪费面积
+double mbr_waste(MBR a, MBR b)
+{
+    return R_area(mbr_combine(a, b)) - R_area(a) - R_area(b);
+}
+//接下来选择seed
+
+void pick_seeds(RTreeEntry *entries, int count, int *seed1, int *seed2){
+    double max_waste = -1.0;
+    int i, j;
+
+    for (i = 0; i < count; i++) {
+        for (j = i + 1; j < count; j++) {
+            double waste = mbr_waste(entries[i].mbr, entries[j].mbr);
+            if (waste > max_waste) {
+                max_waste = waste;
+                *seed1 = i;
+                *seed2 = j;
+            }
+        }
+    }
 
 
 
+
+}
