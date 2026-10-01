@@ -1,4 +1,4 @@
-#ifndefORDER_H
+#ifndef ORDER_H
 #define ORDER_H 
 #include "graph.h"
 typedef struct {
@@ -12,7 +12,7 @@ typedef struct {
 
 
 
-Order *generate_orders(const Graph *graph, int count);
+Order *generate(const Graph *graph, int count);
 
 void free_orders(Order *orders);
 
