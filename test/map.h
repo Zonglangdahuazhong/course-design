@@ -30,4 +30,5 @@ void addVertex(Graph *c,double x,double y);
 void addEdge(Graph *c,int start ,int end,int weight);
 //打印图
 void printGraph(Graph *c);
+int loadMap(Graph *g,char *filename);
 #endif
