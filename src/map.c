@@ -16,7 +16,9 @@ void addVertex(Graph *c,char data)//加点
         return;
     }//点的数量最大为MAX
     c->vertices[c->vertexCount].id=c->vertexCount;
-    c->vertices[c->vertexCount].data=data;//录入该点的名称
+    c->vertices[c->vertexCount].x=x;
+    c->vertices[c->vertexCount].y=y;
+    //录入该点的坐标
     c->vertices[c->vertexCount].first=NULL;
     c->vertexCount++;//录入一次后点的总数加1.
 
