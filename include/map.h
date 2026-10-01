@@ -8,9 +8,11 @@ typedef struct Edge{
 }Edge;
 typedef struct Vertex{
     int id;
+//点的数序
     double x;
     double y;
-    char data;//该点的名称
+    //点的坐标
+    
     Edge *first;//连接的第一条边
 
 }Vertex;
@@ -23,7 +25,7 @@ typedef struct Graph{
 //初始化
 void initGraph(Graph *c);
 //添加节点
-void addVertex(Graph *c,double x,double y,char data);
+void addVertex(Graph *c,double x,double y);
 //添加边
 void addEdge(Graph *c,int start ,int end,int weight);
 //打印图
