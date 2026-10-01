@@ -57,7 +57,7 @@ void pick_seeds(RTreeEntry *entries, int count, int *seed1, int *seed2);
 MBR node_mbr(const RTreeNode *node);
 double mbr_enlargement(MBR group_mbr, MBR entry_mbr);
 void insert_entry(RTreeNode *node, RTreeEntry entry);
-
+void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b);
 #endif              
 
 

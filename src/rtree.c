@@ -182,3 +182,111 @@ void insert_entry(RTreeNode *node, RTreeEntry entry)
 //区分它于insert_order  insert_orser是指插入订单到entry，insert_entry已经有了entry然后实现插入到node中
 //insert_entry(group_a, entries[2]);   把 Entry 2 放进 Group A
 
+//选择去哪一个
+int choose_group(
+    const RTreeNode *group_a, const RTreeNode *group_b,const RTreeEntry *entry)
+{
+    MBR group_a_mbr = node_mbr(group_a);
+    MBR group_b_mbr = node_mbr(group_b);//这个group_a group_b是两个seed分别插入并成为node
+
+    double enlargement_a =
+        mbr_enlargement(group_a_mbr, entry->mbr);
+
+    double enlargement_b =
+        mbr_enlargement(group_b_mbr, entry->mbr);
+
+    if (enlargement_a < enlargement_b) {
+        return 0;
+    }
+
+    if (enlargement_b < enlargement_a) {
+        return 1;
+    }
+
+    // 如果扩展面积相同，则比较当前 MBR 面积
+    double area_a = R_area(group_a_mbr);
+    double area_b = R_area(group_b_mbr);
+
+    if (area_a < area_b) {
+        return 0;
+    }
+
+    return 1;
+}  // 0则插入第一个   1则插入第二个
+
+
+//已经吧基本函数完成   接下来实现二次分裂
+
+
+void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b
+)
+{
+    int seed1;
+    int seed2;
+
+    // 1. 选择两个 Seed
+    pick_seeds(entries,count, &seed1,&seed2
+    );
+
+    // 2. 创建两个新的 Group
+    *group_a = create_node(1);
+    *group_b = create_node(1);
+
+    // 3. 分别放入两个 Seed
+    insert_entry(*group_a,entries[seed1]
+    );
+
+    insert_entry(*group_b,entries[seed2]
+    );
+
+    // 4. 把剩余 Entry 分配到两个 Group
+    for (int i = 0; i < count; i++) {
+
+        // Seed 已经处理过
+        if (i == seed1 || i == seed2) {
+            continue;
+        }
+
+        int group = choose_group(*group_a,*group_b,&entries[i]);
+
+        if (group == 0) {
+insert_entry(*group_a,entries[i]);
+        }
+        else {
+            insert_entry(*group_b,entries[i]);
+        }
+    }
+}
+
+//  二次分裂算法的结构
+/*
+                  5 Entries
+                     │
+                     ↓
+              ┌──────────────┐
+              │ pick_seeds() │
+              └──────┬───────┘
+                     │
+              ┌──────┴──────┐
+              ↓             ↓
+           Seed 1         Seed 2
+              ↓             ↓
+          Group A         Group B
+              │             │
+              └──────┬──────┘
+                     ↓
+              剩余 Entry
+                     │
+                     ↓
+             choose_group()
+                 /       \
+                /         \
+               ↓           ↓
+          Group A       Group B
+               \           /
+                \         /
+                 ↓       ↓
+              insert_entry()
+
+
+*/
