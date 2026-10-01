@@ -1,5 +1,6 @@
 #include"stdio.h"
 #include"rtree.h"
+#include"stdlib.h"
 
 
 MBR order_mbr(const Order *order, const Graph *graph){
@@ -52,3 +53,18 @@ int is_over(MBR a, MBR b)
         return 1; // 相交
     }
 }
+
+RTreeNode *create_node(int is_leaf)
+{
+    RTreeNode *node = malloc(sizeof(RTreeNode));
+
+    if (node == NULL) {
+        return NULL;
+    }
+
+    node->is_leaf = is_leaf;
+    node->count = 0;
+
+    return node;
+}
+
