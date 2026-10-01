@@ -18,51 +18,28 @@ int main(){
        
         return 1;
     }
-RTreeNode *root = create_node(1);
- RTreeEntry entries[5];
+RTreeNode *test_node = create_node(1);
+RTreeEntry entry;
+entry.mbr = order_mbr(&orders[0], graph);
+entry.child = &orders[0];
+insert_entry(test_node, entry);
 
-    // 构造 5 个 Entry
-    for (int i = 0; i < 5; i++) {
-        entries[i].mbr = order_mbr(&orders[i], graph);
-        entries[i].child = &orders[i];
-    }
+printf("count = %d\n", test_node->count);
 
-    printf("===== 所有 Entry 的 MBR =====\n");
+printf("Entry 0:\n");
+printf("min_x = %.8f\n", test_node->entries[0].mbr.min_x);
+printf("max_x = %.8f\n", test_node->entries[0].mbr.max_x);
+printf("min_y = %.8f\n", test_node->entries[0].mbr.min_y);
+printf("max_y = %.8f\n", test_node->entries[0].mbr.max_y);
 
-    for (int i = 0; i < 5; i++) {
-        printf("Entry %d:\n", i);
+free(test_node);
 
-        printf("  min_x = %.8f\n", entries[i].mbr.min_x);
-        printf("  max_x = %.8f\n", entries[i].mbr.max_x);
-        printf("  min_y = %.8f\n", entries[i].mbr.min_y);
-        printf("  max_y = %.8f\n", entries[i].mbr.max_y);
-    }
 
-    printf("\n===== 两两计算 Waste =====\n");
 
-    for (int i = 0; i < 5; i++) {
-        for (int j = i + 1; j < 5; j++) {
 
-            double waste = mbr_waste(
-                entries[i].mbr,
-                entries[j].mbr
-            );
 
-            printf(
-                "Entry %d + Entry %d: waste = %.12f\n",
-                i, j, waste
-            );
-        }
-    }
 
-    int seed1;
-    int seed2;
 
-    pick_seeds(entries, 5, &seed1, &seed2);
 
-    printf("\n===== Seed 选择结果 =====\n");
-    printf("Seed 1 = Entry %d\n", seed1);
-    printf("Seed 2 = Entry %d\n", seed2);
 
-    return 0;
 }

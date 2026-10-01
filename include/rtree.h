@@ -46,15 +46,18 @@ typedef struct {
 } RTree;
 
 
-
+void insert_order(RTreeNode *node, const Order *order, const Graph *graph);
 MBR order_mbr(const Order *order, const Graph *graph);
 MBR mbr_combine(MBR a, MBR b);
 int is_over(MBR a, MBR b);
 RTreeNode *create_node(int is_leaf);
-void insert_order(RTreeNode *node, const Order *order, const Graph *graph);
 double R_area(MBR mbr);
 double mbr_waste(MBR a, MBR b);     
 void pick_seeds(RTreeEntry *entries, int count, int *seed1, int *seed2);
+MBR node_mbr(const RTreeNode *node);
+double mbr_enlargement(MBR group_mbr, MBR entry_mbr);
+void insert_entry(RTreeNode *node, RTreeEntry entry);
+
 #endif              
 
 

@@ -82,7 +82,13 @@ void insert_order(RTreeNode *node, const Order *order, const Graph *graph)
     entry->child = (void *)order;//先录入叶子节点，
 
     node->count++;
-}
+}       
+
+
+
+
+
+
 
 //接下来实现分裂算法   我选择二次分裂 后边有时间优化就尝试一下R*
 /*
@@ -121,3 +127,58 @@ void pick_seeds(RTreeEntry *entries, int count, int *seed1, int *seed2){
 
 
 }
+
+//找到seeds之后  就要考虑剩下的entry怎么分配
+//对于R树算法  面积越小肯定越好
+/*
+两组各自的外接矩形（MBR）面积之和尽可能小：说明数据聚类紧密，空洞少。
+
+两组外接矩形的重叠面积（Overlap）尽可能小：重叠越小，后续查找时需要同时深入遍历的分支就越少。
+
+*/
+//所以  考虑如何分配  就是考虑如何使面积最小   也就是如果放进去后面积增量较小  就选择这个
+
+double mbr_enlargement(MBR group_mbr, MBR entry_mbr)  // grop_mbr是组的MBR  entry_mbr要进入的单个mbr
+{
+    MBR combined = mbr_combine(group_mbr, entry_mbr);
+
+    return R_area(combined) - R_area(group_mbr);
+}
+
+MBR node_mbr(const RTreeNode *node)
+{
+    MBR result;
+
+    if (node->count == 0) {
+        result.min_x = 0;
+        result.min_y = 0;
+        result.max_x = 0;
+        result.max_y = 0;
+        return result;
+    }
+
+    result = node->entries[0].mbr;
+
+    for (int i = 1; i < node->count; i++) {
+        result = mbr_combine(
+            result,
+            node->entries[i].mbr
+        );
+    }
+
+    return result;
+}//把一个node下的所有entry的MBR合并成一个大的MBR
+
+void insert_entry(RTreeNode *node, RTreeEntry entry)
+{
+    if (node->count >= MAX_ENTRIES) {
+        return;
+    }
+
+    node->entries[node->count] = entry;//从0开始，node中加一个entry就count加1
+
+    node->count++;
+}
+//区分它于insert_order  insert_orser是指插入订单到entry，insert_entry已经有了entry然后实现插入到node中
+//insert_entry(group_a, entries[2]);   把 Entry 2 放进 Group A
+
