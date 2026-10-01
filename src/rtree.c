@@ -66,5 +66,24 @@ RTreeNode *create_node(int is_leaf)
     node->count = 0;
 
     return node;
+}//生成节点
+
+
+//把订单插入叶子节点
+void insert_order(RTreeNode *node, const Order *order, const Graph *graph)
+{
+    if (node->count >= MAX_ENTRIES) {
+        return;
+    }
+
+    RTreeEntry *entry = &node->entries[node->count];//新建node时设置的count为0
+
+    entry->mbr = order_mbr(order, graph);
+    entry->child = (void *)order;//先录入叶子节点，
+
+    node->count++;
 }
+
+
+
 

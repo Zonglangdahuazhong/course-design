@@ -51,4 +51,22 @@ MBR order_mbr(const Order *order, const Graph *graph);
 MBR mbr_combine(MBR a, MBR b);
 int is_over(MBR a, MBR b);
 RTreeNode *create_node(int is_leaf);
+void insert_order(RTreeNode *node, const Order *order, const Graph *graph);
 #endif
+
+
+/*
+
++-------------------------------------------------------+
+| 节点 (Node)                                           |
+| +-------------------+ +-------------------+           |
+| | entry 1           | | entry 2          | ...       |
+| | - 矩形框 (MBR)    | | - 矩形框 (MBR)    |           |
+| | - 指针 (Child*)   | | - 指针 (Child*)   |           |
+| +-------------------+ +-------------------+           |
++-------------------------------------------------------+
+
+
+
+
+*/
