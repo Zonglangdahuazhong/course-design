@@ -220,7 +220,8 @@ int choose_group(
 //已经吧基本函数完成   接下来实现二次分裂
 
 
-void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b) // 这里使用二级指针的原因：因为 quadratic_split() 要在函数内部创建 Node，并把这个“新 Node 的地址”修改到函数外面的 group_a 变量里。
+
+void quadratic_split(RTreeEntry *entries,int count, int is_leaf,RTreeNode **group_a,RTreeNode **group_b) // 这里使用二级指针的原因：因为 quadratic_split() 要在函数内部创建 Node，并把这个“新 Node 的地址”修改到函数外面的 group_a 变量里。
 {
     int seed1;
     int seed2;
@@ -230,8 +231,8 @@ void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode
     );
 
     // 2. 创建两个新的 Group
-    *group_a = create_node(1);
-    *group_b = create_node(1);
+    *group_a = create_node(is_leaf);
+    *group_b = create_node(is_leaf);
 
     // 3. 分别放入两个 Seed
     insert_entry(*group_a,entries[seed1]
@@ -470,7 +471,7 @@ void split_node(RTreeNode *node,RTreeEntry new_entry,RTreeNode **group_a,RTreeNo
     entries[node->count] = new_entry;
 
     // 对所有 Entry 进行二次分裂
-    quadratic_split(entries,node->count + 1,group_a,group_b);
+    quadratic_split(entries,node->count + 1,node->is_leaf,group_a,group_b);
 }
 //接下来封装分裂后的两个group回到树的函数
 
@@ -590,3 +591,83 @@ void replace_entry_with_split(RTreeNode *parent,int index,RTreeNode *group_a,RTr
     insert_entry_at(parent, index, entry_a);
     insert_entry_at(parent, index + 1, entry_b);
 }
+
+/*
+              旧 Node
+                 │
+                 │ + New Entry
+                 ↓
+           5 个 Entry
+                 │
+                 ↓
+        ┌────────────────┐
+        │ quadratic_split│
+        └────────────────┘
+             ↙       ↘
+            ↓         ↓
+       Group A      Group B
+        Node          Node
+            ↘       ↙
+             ↓     ↓
+        node_to_entry()
+             ↓     ↓
+          Entry A Entry B
+             ↘     ↙
+              ↓   ↓
+   replace_entry_with_split()
+                 ↓
+               Parent
+                 │
+          A B C  →  A B1 B2 C
+
+
+
+
+*/
+//接下来开始真正的递归插入
+
+/*
+
+insert()
+   │
+   ↓
+insert_recursive(root)
+   │
+   ↓
+选择子树
+   │
+   ↓
+递归
+   │
+   ├── 没 split ─────────→ 返回
+   │
+   └── split
+         │
+         ↓
+    父节点写回
+         │
+         ↓
+    父节点溢出？
+       /    \
+     否      是
+     ↓       ↓
+   返回    父节点 split
+             │
+             ↓
+          继续向上
+
+
+但是root特殊   他并没有父节点 所以：
+
+Root split
+    ↓
+创建新的 Root
+    ↓
+       New Root
+       /      \
+    Group A  Group B
+
+
+
+
+*/
