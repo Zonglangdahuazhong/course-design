@@ -369,3 +369,106 @@ RTreeNode *create_root(RTreeNode *group_a, RTreeNode *group_b)
 
     return root;
 }
+// 创建根节点 加入二次分裂得到的两个group便可形成基本的树结构
+
+/*
+                         Root
+                  ┌────────────────┐
+                  │ is_leaf = 0    │
+                  │ count = 2      │
+                  ├────────────────┤
+                  │ Entry A        │
+                  │  ├─ mbr        │
+                  │  └─ child ──────────┐
+                  │                     │
+                  │ Entry B             │
+                  │  ├─ mbr             │
+                  │  └─ child ───────┐  │
+                  └──────────────────┘  │  │
+                                        │  │
+                         ┌──────────────┘  └──────────────┐
+                         ↓                               ↓
+                      Group A                         Group B
+                    is_leaf = 1                     is_leaf = 1
+                    count = 3                       count = 2
+                    ┌───────┐                       ┌───────┐
+                    │ E1    │                       │ E5    │
+                    │ child ─────→ Order 1          │ child ─────→ Order 5
+                    │ E2    │                       │ E4    │
+                    │ child ─────→ Order 2          │ child ─────→ Order 4
+                    │ E3    │
+                    │ child ─────→ Order 3
+                    └───────┘
+
+
+*/
+
+//接下来是普通插入
+
+
+int choose_subtree(const RTreeNode *node,const RTreeEntry *entry)
+{
+    int best = 0;
+
+    MBR first_mbr = node->entries[0].mbr;
+
+    double best_enlargement =
+        mbr_enlargement(first_mbr, entry->mbr);
+
+    double best_area = R_area(first_mbr);
+
+    for (int i = 1; i < node->count; i++) {
+
+        MBR current_mbr = node->entries[i].mbr;
+
+        double enlargement =
+            mbr_enlargement(current_mbr, entry->mbr);
+
+        double area = R_area(current_mbr);
+
+        if (enlargement < best_enlargement) {
+            best = i;
+            best_enlargement = enlargement;
+            best_area = area;
+        }
+        else if (enlargement == best_enlargement &&
+                 area < best_area) {
+            best = i;
+            best_area = area;
+        }
+    }
+
+    return best;
+}
+//假设插入第0个entry对应的node 计算出面积以及面积增量  然后依次对比插入第1，2，3个entry对应的node 比出最好的，返回entry的下标
+
+
+/*
+split_node()
+    │
+    ├── 收集旧 Entry
+    ├── 加入新 Entry
+    │
+    └── quadratic_split()
+             │
+             ├── pick_seeds()
+             ├── choose_group()
+             └── 分成 A / B
+
+*/  //相当于把当时完成二次分裂的测试程序封装了一下     为后续的普通插入做准备
+//判断一个node满的时候才进入这个函数，也就是说node里是4个entry  然后还有一个新的entry  总共五个
+void split_node(RTreeNode *node,RTreeEntry new_entry,RTreeNode **group_a,RTreeNode **group_b)
+{
+    RTreeEntry entries[MAX_ENTRIES + 1];
+
+    // 复制原 Node 中的 Entry
+    for (int i = 0; i < node->count; i++) {
+        entries[i] = node->entries[i];
+    }
+
+    // 加入新的 Entry
+    entries[node->count] = new_entry;
+
+    // 对所有 Entry 进行二次分裂
+    quadratic_split(entries,node->count + 1,group_a,group_b);
+}

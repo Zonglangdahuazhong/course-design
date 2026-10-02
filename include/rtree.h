@@ -61,6 +61,8 @@ void insert_entry(RTreeNode *node, RTreeEntry entry);
 void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b);
 RTreeEntry node_to_entry(RTreeNode *node);
 RTreeNode *create_root(RTreeNode *group_a, RTreeNode *group_b);
+int choose_subtree(const RTreeNode *node,const RTreeEntry *entry);
+void split_node(RTreeNode *node,RTreeEntry new_entry,RTreeNode **group_a,RTreeNode **group_b ); 
 #endif              
 
 

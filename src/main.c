@@ -5,111 +5,131 @@
 #include "order.h"
 #include "rtree.h"
 
-int main(void)
+int main()
 {
-    Graph *graph = mapload("data//map/hit.txt");
+    // 创建一个叶子节点
+    RTreeNode *node = create_node(1);
 
-    if (graph == NULL) {
-        printf("地图加载失败\n");
+    if (node == NULL) {
+        printf("创建 Node 失败\n");
         return 1;
     }
 
+    // 创建 4 个测试 Order
     Order orders[5];
 
-    // 这里使用你之前生成的 5 个订单
-    orders[0].id = 1;
-    orders[0].pointid = 586;
-
-    orders[1].id = 2;
-    orders[1].pointid = 655;
-
-    orders[2].id = 3;
-    orders[2].pointid = 670;
-
-    orders[3].id = 4;
-    orders[3].pointid = 228;
-
-    orders[4].id = 5;
-    orders[4].pointid = 1388;
-
-    // 构造 5 个 Entry
-    RTreeEntry entries[5];
-
     for (int i = 0; i < 5; i++) {
-        entries[i].mbr =
-            order_mbr(&orders[i], graph);
-
-        entries[i].child =
-            (void *)&orders[i];
+        orders[i].id = i + 1;
+        orders[i].pointid = i + 1;
     }
 
-    // 进行 Quadratic Split
+    /*
+     * 先把前 4 个 Order 转成 Entry，
+     * 放进 node。
+     *
+     * 这里不需要 Graph，
+     * 我们直接手动设置 MBR。
+     */
+
+    for (int i = 0; i < 4; i++) {
+
+        RTreeEntry entry;
+
+        entry.mbr.min_x = i * 10;
+        entry.mbr.max_x = i * 10;
+        entry.mbr.min_y = i * 10;
+        entry.mbr.max_y = i * 10;
+
+        entry.child = (void *)&orders[i];
+
+        insert_entry(node, entry);
+    }
+
+    printf("===== Split 前 =====\n");
+
+    printf("node count = %d\n\n", node->count);
+
+    for (int i = 0; i < node->count; i++) {
+
+        Order *order =
+            (Order *)node->entries[i].child;
+
+        printf(
+            "Entry %d -> Order %d, pointid = %d\n",
+            i,
+            order->id,
+            order->pointid
+        );
+    }
+
+
+    // 创建第 5 个 Entry
+    RTreeEntry new_entry;
+
+    new_entry.mbr.min_x = 40;
+    new_entry.mbr.max_x = 40;
+    new_entry.mbr.min_y = 40;
+    new_entry.mbr.max_y = 40;
+
+    new_entry.child = (void *)&orders[4];
+
+
+    // 两个分裂后的 Node
     RTreeNode *group_a = NULL;
     RTreeNode *group_b = NULL;
 
-    quadratic_split(
-        entries,
-        5,
+
+    // 执行 Split
+    split_node(
+        node,
+        new_entry,
         &group_a,
         &group_b
     );
 
-    // 输出结果
-    printf("===== Group A =====\n");
+
+    printf("\n===== Split 后 =====\n");
+
+    printf("\n--- Group A ---\n");
+
+    printf("count = %d\n", group_a->count);
 
     for (int i = 0; i < group_a->count; i++) {
+
         Order *order =
             (Order *)group_a->entries[i].child;
 
         printf(
-            "Order %d: pointid = %d\n",
+            "Entry %d -> Order %d, pointid = %d\n",
+            i,
             order->id,
             order->pointid
         );
     }
 
-    printf("\n===== Group B =====\n");
+
+    printf("\n--- Group B ---\n");
+
+    printf("count = %d\n", group_b->count);
 
     for (int i = 0; i < group_b->count; i++) {
+
         Order *order =
             (Order *)group_b->entries[i].child;
 
         printf(
-            "Order %d: pointid = %d\n",
+            "Entry %d -> Order %d, pointid = %d\n",
+            i,
             order->id,
             order->pointid
         );
     }
 
-    printf("\nGroup A count = %d\n", group_a->count);
-    printf("Group B count = %d\n", group_b->count);
-RTreeEntry entry_a = node_to_entry(group_a);
-RTreeEntry entry_b = node_to_entry(group_b);
 
-printf("\n===== Node to Entry =====\n");
-
-printf("Entry A child = %p\n", entry_a.child);
-printf("Group A       = %p\n", (void *)group_a);
-
-printf("Entry B child = %p\n", entry_b.child);
-printf("Group B       = %p\n", (void *)group_b);
-RTreeNode *root=create_root(group_a, group_b);
-
-printf("\n===== Root Node =====\n");
-printf("Root          = %p\n", (void *)root);
-printf("root count = %d\n", root->count);
-printf("root is_leaf = %d\n", root->is_leaf);
-
-printf("root entry 0 child = %p\n", root->entries[0].child);
-printf("group_a             = %p\n", (void *)group_a);
-
-printf("root entry 1 child = %p\n", root->entries[1].child);
-printf("group_b             = %p\n", (void *)group_b);
-
+    // 释放内存
     free(group_a);
     free(group_b);
-    free(graph->points);
-    free(graph);
+    free(node);
 
     return 0;
 }
