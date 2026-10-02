@@ -62,6 +62,7 @@ Graph
  一个指向所有邻接表的二级指针。这样就节省了很多空间.*/
 
 Graph *mapload(const char *filename);
+void printGraph(Graph *graph);
 #endif 
 
 

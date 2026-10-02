@@ -113,5 +113,49 @@ graph->adj[from-1] = edge;  //这里最开始写错了  我写的from而不是fr
     fclose(fp);
     return graph;
 }
+
+
+
+
+
+//此函数用于打印图的信息,调试时使用  对于本项目没用
+void printGraph(Graph *graph)
+{
+    if (graph == NULL) {
+        printf("Graph is NULL\n");
+        return;
+    }
+
+    printf("\n===== Graph =====\n");
+    printf("节点数: %d\n", graph->sum);
+
+    for (int i = 0; i < graph->sum; i++) {
+
+        printf("\nNode %d: (%.6f, %.6f)\n",
+               graph->points[i].id,
+               graph->points[i].x,
+               graph->points[i].y);
+
+        printf("  edges: ");
+
+        Edge *edge = graph->adj[i];
+
+        if (edge == NULL) {
+            printf("NULL");
+        }
+
+        while (edge != NULL) {
+            printf("-> %d(%.2f) ",
+                   edge->to + 1,//注意这个加一，因为在生成图时减了一，这里加一才是真正的地图坐标
+                   edge->distance);
+
+            edge = edge->next;
+        }
+
+        printf("\n");
+    }
+
+    printf("\n=================\n");
+}
   
 //注意文件的读取位置是和光标有关的  不过本例是按照顺序依次读的，并不涉及
