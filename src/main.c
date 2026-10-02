@@ -1,5 +1,7 @@
 #include "map.h"
 #include <stdio.h>
+#include <time.h>
+#include "order.h"
 
 int main()
 {
@@ -21,6 +23,29 @@ int main()
 
 
     printGraph(&g);
+     srand((unsigned int)time(NULL));
+
+    // 生成20个订单
+    int count = 20;
+
+    Order *orders = generate(&graph, count);
+
+    if(orders == NULL)
+    {
+        printf("订单生成失败！\n");
+        return 1;
+    }
+
+    // 打印订单
+    for(int i = 0; i < count; i++)
+    {
+        printf("订单%d -> 配送点%d\n",
+               orders[i].id,
+               orders[i].pointid);
+    }
+
+    // 释放内存
+    free_orders(orders);
 
 
 
