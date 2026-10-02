@@ -671,3 +671,39 @@ Root split
 
 
 */
+
+
+ RTreeNode *insert_recursive(
+    RTreeNode *node,
+    RTreeEntry entry
+)
+{  //当前是叶子节点   
+    if (node->is_leaf) {
+          //还有空间，直接插入
+        if (node->count < MAX_ENTRIES) {
+            insert_entry(node, entry);
+            return NULL;
+        }
+ /* 已经满了，需要分裂 */
+        RTreeNode *group_a = NULL;
+        RTreeNode *group_b = NULL;
+
+        split_node(node,entry,&group_a,&group_b);
+
+        /*
+         * group_a 留在当前 node
+         * group_b 返回给父节点
+         */
+        *node = *group_a;
+
+        free(group_a);
+
+        return group_b;
+    }
+
+
+return NULL;
+
+    }
+
+
