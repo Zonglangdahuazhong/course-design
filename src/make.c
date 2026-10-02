@@ -11,6 +11,7 @@
 #include"time.h"
 #include"make.h"
 
+#include <float.h>
 
 
 int make(int count,int local,double x1,double y1,double x2,double y2){
@@ -24,6 +25,7 @@ Graph *graph = mapload("data//map/testMatrx.txt");
     }
     printf("地图加载成功\n");
     printf("节点数：%d\n", graph->sum);
+    printGraph(graph);
    int order_count = count;
     
     Order *orders = generate(graph, order_count);
@@ -49,7 +51,7 @@ printf("\n===== R树插入完成 =====\n");
     query.max_y = y2;
 Order *results[count];
 
-    int fcount = rtree_query(tree.root,query,results,count);
+    int findcount = rtree_query(tree.root,query,results,count);
  printf("\n===== R树查询 =====\n");
     printf(
         "查询区域: (%f, %f) ~ (%f, %f)\n",
@@ -61,10 +63,10 @@ Order *results[count];
 
     printf(
         "找到 %d 个订单\n",
-        fcount
+        findcount
     );
 
-    for (int i = 0; i < fcount; i++) {
+    for (int i = 0; i < findcount; i++) {
 
         printf(
             "Order: id=%d, pointid=%d\n",
@@ -72,15 +74,15 @@ Order *results[count];
             results[i]->pointid
         );
     }
-    int base=local;
-double **Matrix=generateMatrix(graph,results,fcount,base);//base:配送中心所在的地图节点在 graph->points[] 中的下标（0-based）
+    int base=local-1;
+double **Matrix=generateMatrix(graph,results,findcount,base);//base:配送中心所在的地图节点在 graph->points[] 中的下标（0-based）
 if (Matrix == NULL) {
  
     printf("距离矩阵生成失败\n");
     return 1;
 }
 
-int size = fcount + 1;
+int size = findcount + 1;
 
 printf("\n===== 距离矩阵 =====\n");
 
@@ -88,12 +90,12 @@ printf("\n===== 距离矩阵 =====\n");
 for (int i = 0; i < size; i++) {
 
     if (i == 0) {
-        printf("%10s", "BASE");
+        printf("%10s", "                BASE");
     }
     else {
         printf(
             "%10d",
-            results[i - 1]->id
+            results[i - 1]->pointid
         );
     }
 }
@@ -107,16 +109,17 @@ for (int i = 0; i < size; i++) {
     else {
         printf(
             "%10d",
-            results[i - 1]->id
+            results[i - 1]->pointid
         );
     }
 
     for (int j = 0; j < size; j++) {
 
-        printf(
-            "%10.2f",
-            Matrix[i][j]
-        );
+        if (Matrix[i][j] == DBL_MAX) {
+    printf("%10s", "INF");
+} else {
+    printf("%10.2f", Matrix[i][j]);
+}
     }
 
     printf("\n");
