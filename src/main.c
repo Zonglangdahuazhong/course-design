@@ -1,12 +1,15 @@
 #include <stdio.h>
 #include <stdlib.h>
-
+#include <time.h>
 #include "graph.h"
 #include "order.h"
 #include "rtree.h"
 
 int main(void)
 {
+
+
+    srand(time(NULL));
     /* =========================
        1. 加载地图
        ========================= */
