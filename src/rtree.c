@@ -323,7 +323,7 @@ RTreeEntry node_to_entry(RTreeNode *node)
 
     return entry;
 } 
-//把分好的group_a  group_b 变成entry  也就是接下来开始建立树结构
+//把分好的group_a  group_b 变成entry（entry指向他们，即entry的child指向这些node，这样就可以递归给父亲，形成树结构），  也就是接下来开始建立树结构
 /*
 Leaf Node
 ├── Entry 1
@@ -471,4 +471,122 @@ void split_node(RTreeNode *node,RTreeEntry new_entry,RTreeNode **group_a,RTreeNo
 
     // 对所有 Entry 进行二次分裂
     quadratic_split(entries,node->count + 1,group_a,group_b);
+}
+//接下来封装分裂后的两个group回到树的函数
+
+/*
+过程大致演示：
+原本
+Entry 0 → A
+Entry 1 → B   ← 这个要 Split
+Entry 2 → C
+
+变成：
+
+Entry 0 → A
+Entry 1 → B1
+Entry 2 → B2
+Entry 3 → C
+
+
+*/
+// 这个函数需要两个基础的功能   1是把entry从node中删除  2是把entry插入到node的指定位置
+//1、
+
+
+void remove_entry(RTreeNode *node, int index)
+{
+    if (index < 0 || index >= node->count)
+        return;
+
+    for (int i = index; i < node->count - 1; i++) {
+        node->entries[i] = node->entries[i + 1];
+    }
+
+    node->count--;
+}
+
+/*
+删除 Entry 1
+
+Entry 0
+Entry 1 ← 删除
+Entry 2
+Entry 3
+
+        ↓ 往前移动
+
+Entry 0
+Entry 2
+Entry 3
+*/
+
+//2、 
+void insert_entry_at(RTreeNode *node,int index,RTreeEntry entry )
+{
+    if (node == NULL)
+        return;
+
+    if (index < 0 || index > node->count)
+        return;// 索引超出范围
+
+    if (node->count >= MAX_ENTRIES)
+        return;//需要去分裂
+
+    // 从后往前移动，给新 Entry 腾出位置
+    for (int i = node->count; i > index; i--) {
+        node->entries[i] = node->entries[i - 1];
+    }
+
+    // 插入新 Entry
+    node->entries[index] = entry;
+
+    node->count++;
+}
+/*
+  for (int i = node->count; i > index; i--)注意这个！
+  一定要从后边开始移动
+正确：
+先：
+[A][C][D]
+
+D 往后：
+[A][C][D][D]
+
+C 往后：
+[A][C][C][D]
+
+最后：
+[A][B][C][D]
+
+如果从前往后：
+
+[A][C][D]
+
+C → 后面
+[A][C][C]
+
+D → 后面
+[A][C][C][C]
+
+*/
+
+void replace_entry_with_split(RTreeNode *parent,int index,RTreeNode *group_a,RTreeNode *group_b)
+{
+    if (parent == NULL)
+        return;
+
+    if (index < 0 || index >= parent->count)
+        return;
+
+    // 1. 删除原来的 Entry
+    remove_entry(parent, index);
+
+    // 2. 把两个分裂后的 Node 转换成 Entry
+    RTreeEntry entry_a = node_to_entry(group_a);
+    RTreeEntry entry_b = node_to_entry(group_b);
+
+    // 3. 在原来的位置插入两个新的 Entry
+    insert_entry_at(parent, index, entry_a);
+    insert_entry_at(parent, index + 1, entry_b);
 }

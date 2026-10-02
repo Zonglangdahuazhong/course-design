@@ -1,135 +1,73 @@
 #include <stdio.h>
 #include <stdlib.h>
-
-#include "graph.h"
-#include "order.h"
 #include "rtree.h"
-
 int main()
 {
-    // 创建一个叶子节点
-    RTreeNode *node = create_node(1);
+    // 创建父节点
+    RTreeNode *parent = create_node(0);
 
-    if (node == NULL) {
-        printf("创建 Node 失败\n");
-        return 1;
+    // 创建三个子节点
+    RTreeNode *node_a = create_node(1);
+    RTreeNode *node_b = create_node(1);
+    RTreeNode *node_c = create_node(1);
+
+    // 创建两个分裂后的节点
+    RTreeNode *group_a = create_node(1);
+    RTreeNode *group_b = create_node(1);
+
+    // 随便构造几个 Entry
+    RTreeEntry entry_a;
+    entry_a.mbr.min_x = 0;
+    entry_a.mbr.min_y = 0;
+    entry_a.mbr.max_x = 1;
+    entry_a.mbr.max_y = 1;
+    entry_a.child = node_a;
+
+    RTreeEntry entry_b;
+    entry_b.mbr.min_x = 10;
+    entry_b.mbr.min_y = 10;
+    entry_b.mbr.max_x = 11;
+    entry_b.mbr.max_y = 11;
+    entry_b.child = node_b;
+
+    RTreeEntry entry_c;
+    entry_c.mbr.min_x = 20;
+    entry_c.mbr.min_y = 20;
+    entry_c.mbr.max_x = 21;
+    entry_c.mbr.max_y = 21;
+    entry_c.child = node_c;
+
+    // 父节点：
+    // A B C
+    insert_entry(parent, entry_a);
+    insert_entry(parent, entry_b);
+    insert_entry(parent, entry_c);
+
+    printf("===== 替换前 =====\n");
+
+    for (int i = 0; i < parent->count; i++) {
+        printf("Entry %d -> child = %p\n",
+               i,
+               parent->entries[i].child);
     }
 
-    // 创建 4 个测试 Order
-    Order orders[5];
-
-    for (int i = 0; i < 5; i++) {
-        orders[i].id = i + 1;
-        orders[i].pointid = i + 1;
-    }
-
-    /*
-     * 先把前 4 个 Order 转成 Entry，
-     * 放进 node。
-     *
-     * 这里不需要 Graph，
-     * 我们直接手动设置 MBR。
-     */
-
-    for (int i = 0; i < 4; i++) {
-
-        RTreeEntry entry;
-
-        entry.mbr.min_x = i * 10;
-        entry.mbr.max_x = i * 10;
-        entry.mbr.min_y = i * 10;
-        entry.mbr.max_y = i * 10;
-
-        entry.child = (void *)&orders[i];
-
-        insert_entry(node, entry);
-    }
-
-    printf("===== Split 前 =====\n");
-
-    printf("node count = %d\n\n", node->count);
-
-    for (int i = 0; i < node->count; i++) {
-
-        Order *order =
-            (Order *)node->entries[i].child;
-
-        printf(
-            "Entry %d -> Order %d, pointid = %d\n",
-            i,
-            order->id,
-            order->pointid
-        );
-    }
-
-
-    // 创建第 5 个 Entry
-    RTreeEntry new_entry;
-
-    new_entry.mbr.min_x = 40;
-    new_entry.mbr.max_x = 40;
-    new_entry.mbr.min_y = 40;
-    new_entry.mbr.max_y = 40;
-
-    new_entry.child = (void *)&orders[4];
-
-
-    // 两个分裂后的 Node
-    RTreeNode *group_a = NULL;
-    RTreeNode *group_b = NULL;
-
-
-    // 执行 Split
-    split_node(
-        node,
-        new_entry,
-        &group_a,
-        &group_b
+    // 假设 B 分裂成 group_a 和 group_b
+    replace_entry_with_split(
+        parent,
+        1,
+        group_a,
+        group_b
     );
 
+    printf("\n===== 替换后 =====\n");
 
-    printf("\n===== Split 后 =====\n");
-
-    printf("\n--- Group A ---\n");
-
-    printf("count = %d\n", group_a->count);
-
-    for (int i = 0; i < group_a->count; i++) {
-
-        Order *order =
-            (Order *)group_a->entries[i].child;
-
-        printf(
-            "Entry %d -> Order %d, pointid = %d\n",
-            i,
-            order->id,
-            order->pointid
-        );
+    for (int i = 0; i < parent->count; i++) {
+        printf("Entry %d -> child = %p\n",
+               i,
+               parent->entries[i].child);
     }
 
-
-    printf("\n--- Group B ---\n");
-
-    printf("count = %d\n", group_b->count);
-
-    for (int i = 0; i < group_b->count; i++) {
-
-        Order *order =
-            (Order *)group_b->entries[i].child;
-
-        printf(
-            "Entry %d -> Order %d, pointid = %d\n",
-            i,
-            order->id,
-            order->pointid
-        );
-    }
-
-
-    // 释放内存
-    free(group_a);
-    free(group_b);
-    free(node);
+    printf("\nparent count = %d\n", parent->count);
 
     return 0;
 }
