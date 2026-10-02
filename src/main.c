@@ -145,7 +145,43 @@ int main()
     print_tree(tree.root, 0);
 
 
+printf("\n\n");
+printf("========== 查询 ==========\n");
+
+MBR query;
+
+query.min_x = 25;
+query.max_x = 75;
+query.min_y = 25;
+query.max_y = 75;
+
+printf(
+    "查询区域: (%lf, %lf) ~ (%lf, %lf)\n",
+    query.min_x,
+    query.min_y,
+    query.max_x,
+    query.max_y
+);
+
+rtree_query(
+    tree.root,
+    query
+);
+
+
+
+
+
+
+
+
+
+
+
+
     free(graph.points);
+
+
 
     return 0;
 }

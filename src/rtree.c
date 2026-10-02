@@ -804,3 +804,55 @@ void rtree_insert(RTree *tree,const Order *order,const Graph *graph)
 
     tree->root = new_root;
 }
+
+//完成了R树的插入   接下来就是查询地图上的订单点
+
+
+
+void rtree_query(RTreeNode *node,MBR query_mbr)
+{
+    if (node == NULL)
+        return;
+
+    for (int i = 0; i < node->count; i++) {
+
+        RTreeEntry *entry =
+            &node->entries[i];
+
+        /* MBR 不相交，直接跳过 */
+        if (!is_over(
+                entry->mbr,
+                query_mbr)) {
+
+            continue;
+        }
+        /* =====================
+           MBR 相交
+           ===================== */
+
+        if (node->is_leaf) {
+
+            Order *order =
+                (Order *)entry->child;
+
+            printf(
+                "找到 Order: id=%d, pointid=%d\n",
+                order->id,
+                order->pointid
+            );
+
+        }
+        else {
+
+            RTreeNode *child =
+                (RTreeNode *)entry->child;
+
+            rtree_query(
+                child,
+                query_mbr
+            );
+        }
+    }
+}
+
+//如果是叶子节点  去找订单   如果不是递归查询
