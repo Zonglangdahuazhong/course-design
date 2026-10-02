@@ -99,7 +99,7 @@ if (fscanf(fp, "%d %d %lf",&from,&to,&distance) != 3) {
         }  //分配内存给边，如果分配失败就报错退出
        
 
-        edge->to = to;
+        edge->to = to-1;
         edge->distance = distance;
       
        /*for (int i = 0; i < graph->sum; i++) {

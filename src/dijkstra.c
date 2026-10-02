@@ -71,3 +71,132 @@ void dijkstra(Graph *graph, int start, double *dist, int *prev)
 
     free(visited);
 }
+
+//接下来把结果存储起来   以便后续算最优访问路径时使用
+double **generateMatrix(Graph *graph,Order **orders,int order_count,int base)
+{
+    int target_count = order_count + 1;
+
+    // targets[0] 是配送中心
+    // targets[1...] 是订单节点
+    int *targets = malloc(
+        target_count * sizeof(int)
+    );
+
+    if (targets == NULL) {
+        printf("targets 内存分配失败\n");
+        return NULL;
+    }
+
+    targets[0] = base;
+
+    for (int i = 0; i < order_count; i++) {
+        targets[i + 1] = orders[i]->pointid-1;//这句
+    }
+
+    // 创建二维距离矩阵
+    double **matrix = malloc(
+        target_count * sizeof(double *)
+    );
+    /*
+    matrix
+  ↓
++----------+       +---------------------------+
+| matrix[0] | ----→ | double double double ... |
++----------+       +---------------------------+
+| matrix[1] | ----→ | double double double ... |
++----------+       +---------------------------+
+| matrix[2] | ----→ | double double double ... |
++----------+       +---------------------------+
+| matrix[3] | ----→ | double double double ... |
++----------+       +---------------------------+
+    
+    */
+
+    if (matrix == NULL) {
+        free(targets);
+        return NULL;
+    }
+
+    for (int i = 0; i < target_count; i++) {
+
+        matrix[i] = malloc(
+            target_count * sizeof(double)
+        );
+
+        if (matrix[i] == NULL) {
+
+            for (int j = 0; j < i; j++) {
+                free(matrix[j]);
+            }
+
+            free(matrix);
+            free(targets);
+
+            return NULL;
+        }
+    }
+
+    // Dijkstra 使用的数组
+    double *dist = malloc(
+        graph->sum * sizeof(double)
+    );
+
+    int *prev = malloc(
+        graph->sum * sizeof(int)
+    );
+
+    if (dist == NULL || prev == NULL) {
+
+        free(dist);
+        free(prev);
+
+        freeMatrix(
+            matrix,
+            target_count
+        );
+
+        free(targets);
+
+        return NULL;
+    }
+
+    // 对每一个目标节点运行一次 Dijkstra
+    for (int i = 0; i < target_count; i++) {
+
+        int start = targets[i];
+
+        dijkstra(graph,start,dist,prev);
+
+        // 只提取其他目标节点的距离
+        for (int j = 0; j < target_count; j++) {
+
+            matrix[i][j] =
+                dist[targets[j]];
+        }
+    }
+
+    free(dist);
+    free(prev);
+    free(targets);
+
+    return matrix;
+}
+
+
+
+void freeMatrix(
+    double **matrix,
+    int size
+)
+{
+    if (matrix == NULL) {
+        return;
+    }
+
+    for (int i = 0; i < size; i++) {
+        free(matrix[i]);
+    }
+
+    free(matrix);
+}

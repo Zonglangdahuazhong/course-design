@@ -1,47 +1,179 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <float.h>
+#include"rtree.h"
+#include"dijkstra.h"
+#include"time.h"
+int main(){
+srand(time(NULL));
 
-#include "../include/graph.h"
-#include "../include/dijkstra.h"
 
-int main()
-{
-    Graph *graph = mapload("data//map/hit.txt");
+Graph *graph = mapload("data//map/hit.txt");
 
     if (graph == NULL) {
         printf("地图加载失败\n");
         return 1;
     }
 
-    // 从 0 号节点出发
-    int start = 0;
+    printf("地图加载成功\n");
+    printf("节点数：%d\n", graph->sum);
 
-    double *dist = malloc(graph->sum * sizeof(double));
-    int *prev = malloc(graph->sum * sizeof(int));
+   int order_count = 10;
+    
 
-    if (dist == NULL || prev == NULL) {
-        printf("内存分配失败\n");
+    
+    Order *orders = generate(graph, order_count);
+    
+    if (orders == NULL) {
+        printf("订单内存分配失败\n");
         return 1;
     }
+    printf("\n生成 %d 个订单：\n", order_count);
+     RTree tree;
 
-    dijkstra(graph, start, dist, prev);
+    tree.root = NULL;
 
-    // 输出前 20 个节点的最短距离
-    for (int i = 0; i < 20 && i < graph->sum; i++) {
 
-        if (dist[i] == DBL_MAX) {
-            printf("%d -> %d : 不可达\n",
-                   start, i);
-        }
-        else {
-            printf("%d -> %d : %.2f\n",
-                   start, i, dist[i]);
-        }
+
+
+
+ for (int i = 0; i < order_count; i++) {
+
+        rtree_insert(
+            &tree,
+            &orders[i],
+            graph
+        );
+    }
+printf("\n===== R树插入完成 =====\n");
+    printf("已经插入 %d 个订单\n", order_count);
+
+  MBR query;
+
+    query.min_x = 122;
+    query.min_y = 37;
+    query.max_x = 123;
+    query.max_y = 38;
+Order *results[10];
+
+    int count = rtree_query(
+        tree.root,
+        query,
+        results,
+        10
+    );
+ printf("\n===== R树查询 =====\n");
+
+    printf(
+        "查询区域: (%f, %f) ~ (%f, %f)\n",
+        query.min_x,
+        query.min_y,
+        query.max_x,
+        query.max_y
+    );
+
+    printf(
+        "找到 %d 个订单\n",
+        count
+    );
+
+    for (int i = 0; i < count; i++) {
+
+        printf(
+            "Order: id=%d, pointid=%d\n",
+            results[i]->id,
+            results[i]->pointid
+        );
+    }
+    int base=310;
+double **Matrix=generateMatrix(graph,results,order_count,base);//base:配送中心所在的地图节点在 graph->points[] 中的下标（0-based）
+if (Matrix == NULL) {
+ 
+    printf("距离矩阵生成失败\n");
+    return 1;
+}
+
+int size = order_count + 1;
+
+printf("\n===== 距离矩阵 =====\n");
+
+
+for (int i = 0; i < size; i++) {
+
+    if (i == 0) {
+        printf("%10s", "BASE");
+    }
+    else {
+        printf(
+            "%10d",
+            results[i - 1]->id
+        );
+    }
+}
+
+printf("\n");
+for (int i = 0; i < size; i++) {
+
+    if (i == 0) {
+        printf("%10s", "BASE");
+    }
+    else {
+        printf(
+            "%10d",
+            results[i - 1]->id
+        );
     }
 
-    free(dist);
-    free(prev);
+    for (int j = 0; j < size; j++) {
 
-    return 0;
+        printf(
+            "%10.2f",
+            Matrix[i][j]
+        );
+    }
+
+    printf("\n");
 }
+
+
+freeMatrix(
+    Matrix,
+    size
+);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+    
+    free_orders(orders);
+
+    return 1;
+}
+
+
+
+
+
+
+
+  
