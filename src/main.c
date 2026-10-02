@@ -5,86 +5,52 @@
 #include "order.h"
 #include "rtree.h"
 
-
-/* 打印整棵 R 树 */
-void print_tree(RTreeNode *node, int level)
-{
-    if (node == NULL)
-        return;
-
-    /* 缩进 */
-    for (int i = 0; i < level; i++)
-        printf("    ");
-
-    printf(
-        "Node: level=%d, count=%d, is_leaf=%d\n",
-        level,
-        node->count,
-        node->is_leaf
-    );
-
-    /* 叶节点 */
-    if (node->is_leaf) {
-
-        for (int i = 0; i < node->count; i++) {
-
-            Order *order =
-                (Order *)node->entries[i].child;
-
-            for (int j = 0; j < level + 1; j++)
-                printf("    ");
-
-            printf(
-                "Order: id=%d, pointid=%d\n",
-                order->id,
-                order->pointid
-            );
-        }
-
-        return;
-    }
-
-    /* 内部节点 */
-    for (int i = 0; i < node->count; i++) {
-
-        RTreeNode *child =
-            (RTreeNode *)node->entries[i].child;
-
-        print_tree(child, level + 1);
-    }
-}
-
-
-int main()
+int main(void)
 {
     /* =========================
-       1. 创建 Graph
+       1. 加载地图
        ========================= */
 
-    Graph graph;
+    Graph *graph = mapload("data/map/Rtreetest.txt");
 
-    graph.sum = 20;
-
-    graph.points =
-        malloc(sizeof(Point) * 20);
-
-    if (graph.points == NULL)
+    if (graph == NULL) {
+        printf("地图加载失败\n");
         return 1;
+    }
 
 
-    /* 创建 20 个点 */
-    for (int i = 0; i < 20; i++) {
 
-        graph.points[i].id = i + 1;
 
-        graph.points[i].x = i * 10;
+    /* =========================
+       2. 生成订单
+       ========================= */
 
-        graph.points[i].y = i * 10;
+    int order_count = 20;
+
+    Order *orders = generate(
+        graph,
+        order_count
+    );
+
+    if (orders == NULL) {
+        printf("订单生成失败\n");
+        return 1;
+    }
+
+    printf("\n===== 生成订单 =====\n");
+
+    for (int i = 0; i < order_count; i++) {
+
+        printf(
+            "Order %d: pointid = %d\n",
+            orders[i].id,
+            orders[i].pointid
+        );
     }
 
 
     /* =========================
-       2. 创建空 R 树
+       3. 创建 R 树
        ========================= */
 
     RTree tree;
@@ -93,95 +59,82 @@ int main()
 
 
     /* =========================
-       3. 创建 20 个订单
+       4. 将订单逐个插入 R 树
        ========================= */
 
-    Order orders[20];
-
-    for (int i = 0; i < 20; i++) {
-
-        orders[i].id = i + 1;
-
-        orders[i].pointid = i + 1;
-    }
-
-
-    /* =========================
-       4. 依次插入
-       ========================= */
-
-    for (int i = 0; i < 20; i++) {
-
-        printf(
-            "\n===== 插入 Order %d =====\n",
-            i + 1
-        );
+    for (int i = 0; i < order_count; i++) {
 
         rtree_insert(
             &tree,
             &orders[i],
-            &graph
+            graph
         );
+    }
+
+    printf("\n===== R树插入完成 =====\n");
+    printf("已经插入 %d 个订单\n", order_count);
+
+
+    /* =========================
+       5. 设置查询区域
+       ========================= */
+
+    MBR query;
+
+    query.min_x = 15;
+    query.min_y = 5;
+    query.max_x = 35;
+    query.max_y = 25;
+
+
+    /* =========================
+       6. 查询 R 树
+       ========================= */
+
+    Order *results[20];
+
+    int count = rtree_query(
+        tree.root,
+        query,
+        results,
+        20
+    );
+
+
+    /* =========================
+       7. 输出查询结果
+       ========================= */
+
+    printf("\n===== R树查询 =====\n");
+
+    printf(
+        "查询区域: (%f, %f) ~ (%f, %f)\n",
+        query.min_x,
+        query.min_y,
+        query.max_x,
+        query.max_y
+    );
+
+    printf(
+        "找到 %d 个订单\n",
+        count
+    );
+
+    for (int i = 0; i < count; i++) {
 
         printf(
-            "root count = %d\n",
-            tree.root->count
-        );
-
-        printf(
-            "root is_leaf = %d\n",
-            tree.root->is_leaf
+            "Order: id=%d, pointid=%d\n",
+            results[i]->id,
+            results[i]->pointid
         );
     }
 
 
     /* =========================
-       5. 打印最终整棵树
+       8. 释放订单
        ========================= */
 
-    printf("\n\n");
-    printf("========== 最终 R 树 ==========\n");
-
-    print_tree(tree.root, 0);
-
-
-printf("\n\n");
-printf("========== 查询 ==========\n");
-
-MBR query;
-
-query.min_x = 25;
-query.max_x = 75;
-query.min_y = 25;
-query.max_y = 75;
-
-printf(
-    "查询区域: (%lf, %lf) ~ (%lf, %lf)\n",
-    query.min_x,
-    query.min_y,
-    query.max_x,
-    query.max_y
-);
-
-rtree_query(
-    tree.root,
-    query
-);
-
-
-
-
-
-
-
-
-
-
-
-
-    free(graph.points);
-
-
+    free_orders(orders);
 
     return 0;
 }

@@ -809,50 +809,56 @@ void rtree_insert(RTree *tree,const Order *order,const Graph *graph)
 
 
 
-void rtree_query(RTreeNode *node,MBR query_mbr)
+int rtree_query(RTreeNode *node,MBR query_mbr,Order **results,int max_results)
 {
     if (node == NULL)
-        return;
+        return 0;
+
+    int count = 0;
 
     for (int i = 0; i < node->count; i++) {
 
         RTreeEntry *entry =
             &node->entries[i];
 
-        /* MBR 不相交，直接跳过 */
         if (!is_over(
                 entry->mbr,
                 query_mbr)) {
 
             continue;
         }
-        /* =====================
-           MBR 相交
-           ===================== */
 
         if (node->is_leaf) {
 
-            Order *order =
+            if (count >= max_results)
+                return count;
+
+            results[count] =
                 (Order *)entry->child;
 
-            printf(
-                "找到 Order: id=%d, pointid=%d\n",
-                order->id,
-                order->pointid
-            );
-
+            count++;
         }
         else {
 
             RTreeNode *child =
                 (RTreeNode *)entry->child;
 
-            rtree_query(
-                child,
-                query_mbr
-            );
+            int found =
+                rtree_query(
+                    child,
+                    query_mbr,
+                    results + count,
+                    max_results - count
+                );
+
+            count += found;
+
+            if (count >= max_results)
+                return count;
         }
     }
+
+    return count;
 }
 
-//如果是叶子节点  去找订单   如果不是递归查询
+//如果是叶子节点  去找订单   如果不是就去递归查询
