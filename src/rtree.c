@@ -220,7 +220,7 @@ int choose_group(
 //已经吧基本函数完成   接下来实现二次分裂
 
 
-void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b)
+void quadratic_split(RTreeEntry *entries,int count,RTreeNode **group_a,RTreeNode **group_b) // 这里使用二级指针的原因：因为 quadratic_split() 要在函数内部创建 Node，并把这个“新 Node 的地址”修改到函数外面的 group_a 变量里。
 {
     int seed1;
     int seed2;
@@ -313,3 +313,59 @@ insert_entry(*group_a,entries[i]);
 
 */
 // 为了使两个node都有足够的 entries  应该规定一个最小数量
+
+RTreeEntry node_to_entry(RTreeNode *node)
+{
+    RTreeEntry entry;
+
+    entry.mbr = node_mbr(node);
+    entry.child = (void *)node;
+
+    return entry;
+} 
+//把分好的group_a  group_b 变成entry  也就是接下来开始建立树结构
+/*
+Leaf Node
+├── Entry 1
+│   ├── mbr ───→ 一个订单的位置（一个点）
+│   └── child ─→ Order 1
+│
+├── Entry 2
+│   ├── mbr ───→ 一个订单的位置（一个点）
+│   └── child ─→ Order 2
+│
+└── Entry 3
+    ├── mbr ───→ 一个订单的位置（一个点）
+    └── child ─→ Order 3
+
+*/
+
+/*
+Internal Node
+├── Entry 1
+│   ├── mbr ───→ Child Node 的整体范围
+│   └── child ─→ Child Node 1
+│
+├── Entry 2
+│   ├── mbr ───→ Child Node 的整体范围
+│   └── child ─→ Child Node 2
+│
+└── Entry 3
+    ├── mbr ───→ Child Node 的整体范围
+    └── child ─→ Child Node 3
+*/
+RTreeNode *create_root(RTreeNode *group_a, RTreeNode *group_b)
+{
+    RTreeNode *root = create_node(0);
+
+    if (root == NULL)
+        return NULL;
+
+    RTreeEntry entry_a = node_to_entry(group_a);
+    RTreeEntry entry_b = node_to_entry(group_b);
+
+    insert_entry(root, entry_a);
+    insert_entry(root, entry_b);
+
+    return root;
+}

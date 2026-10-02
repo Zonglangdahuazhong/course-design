@@ -83,6 +83,28 @@ int main(void)
 
     printf("\nGroup A count = %d\n", group_a->count);
     printf("Group B count = %d\n", group_b->count);
+RTreeEntry entry_a = node_to_entry(group_a);
+RTreeEntry entry_b = node_to_entry(group_b);
+
+printf("\n===== Node to Entry =====\n");
+
+printf("Entry A child = %p\n", entry_a.child);
+printf("Group A       = %p\n", (void *)group_a);
+
+printf("Entry B child = %p\n", entry_b.child);
+printf("Group B       = %p\n", (void *)group_b);
+RTreeNode *root=create_root(group_a, group_b);
+
+printf("\n===== Root Node =====\n");
+printf("Root          = %p\n", (void *)root);
+printf("root count = %d\n", root->count);
+printf("root is_leaf = %d\n", root->is_leaf);
+
+printf("root entry 0 child = %p\n", root->entries[0].child);
+printf("group_a             = %p\n", (void *)group_a);
+
+printf("root entry 1 child = %p\n", root->entries[1].child);
+printf("group_b             = %p\n", (void *)group_b);
 
     free(group_a);
     free(group_b);
