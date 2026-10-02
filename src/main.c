@@ -5,54 +5,117 @@
 #include "order.h"
 #include "rtree.h"
 
+
+/* 打印整棵 R 树 */
+void print_tree(RTreeNode *node, int level)
+{
+    if (node == NULL)
+        return;
+
+    /* 缩进 */
+    for (int i = 0; i < level; i++)
+        printf("    ");
+
+    printf(
+        "Node: level=%d, count=%d, is_leaf=%d\n",
+        level,
+        node->count,
+        node->is_leaf
+    );
+
+    /* 叶节点 */
+    if (node->is_leaf) {
+
+        for (int i = 0; i < node->count; i++) {
+
+            Order *order =
+                (Order *)node->entries[i].child;
+
+            for (int j = 0; j < level + 1; j++)
+                printf("    ");
+
+            printf(
+                "Order: id=%d, pointid=%d\n",
+                order->id,
+                order->pointid
+            );
+        }
+
+        return;
+    }
+
+    /* 内部节点 */
+    for (int i = 0; i < node->count; i++) {
+
+        RTreeNode *child =
+            (RTreeNode *)node->entries[i].child;
+
+        print_tree(child, level + 1);
+    }
+}
+
+
 int main()
 {
     /* =========================
-       1. 创建一个简单的 Graph
+       1. 创建 Graph
        ========================= */
 
     Graph graph;
 
-    graph.sum = 5;
+    graph.sum = 20;
 
-    graph.points = malloc(sizeof(Point) * 5);
+    graph.points =
+        malloc(sizeof(Point) * 20);
 
-    if (graph.points == NULL) {
+    if (graph.points == NULL)
         return 1;
-    }
 
-    /* 5 个点，故意放在不同位置 */
-    for (int i = 0; i < 5; i++) {
+
+    /* 创建 20 个点 */
+    for (int i = 0; i < 20; i++) {
+
         graph.points[i].id = i + 1;
+
         graph.points[i].x = i * 10;
+
         graph.points[i].y = i * 10;
     }
+
 
     /* =========================
        2. 创建空 R 树
        ========================= */
 
     RTree tree;
+
     tree.root = NULL;
 
+
     /* =========================
-       3. 创建 5 个订单
+       3. 创建 20 个订单
        ========================= */
 
-    Order orders[5];
+    Order orders[20];
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 20; i++) {
+
         orders[i].id = i + 1;
+
         orders[i].pointid = i + 1;
     }
+
 
     /* =========================
        4. 依次插入
        ========================= */
 
-    for (int i = 0; i < 5; i++) {
+    for (int i = 0; i < 20; i++) {
 
-        printf("\n===== 插入 Order %d =====\n", i + 1);
+        printf(
+            "\n===== 插入 Order %d =====\n",
+            i + 1
+        );
 
         rtree_insert(
             &tree,
@@ -60,35 +123,27 @@ int main()
             &graph
         );
 
-        printf("root count = %d\n",
-               tree.root->count);
+        printf(
+            "root count = %d\n",
+            tree.root->count
+        );
 
-        printf("root is_leaf = %d\n",
-               tree.root->is_leaf);
-
-        /* 如果 root 已经变成内部节点 */
-        if (!tree.root->is_leaf) {
-
-            printf("root 有 %d 个子节点\n",
-                   tree.root->count);
-
-            for (int j = 0;
-                 j < tree.root->count;
-                 j++) {
-
-                RTreeNode *child =
-                    (RTreeNode *)
-                    tree.root->entries[j].child;
-
-                printf(
-                    "  child %d: count = %d, is_leaf = %d\n",
-                    j,
-                    child->count,
-                    child->is_leaf
-                );
-            }
-        }
+        printf(
+            "root is_leaf = %d\n",
+            tree.root->is_leaf
+        );
     }
+
+
+    /* =========================
+       5. 打印最终整棵树
+       ========================= */
+
+    printf("\n\n");
+    printf("========== 最终 R 树 ==========\n");
+
+    print_tree(tree.root, 0);
+
 
     free(graph.points);
 
