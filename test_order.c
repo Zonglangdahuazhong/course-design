@@ -2,32 +2,78 @@
 #include <stdlib.h>
 #include <time.h>
 
+#include "map.h"
 #include "order.h"
+#include "dijkstra.h"
+
+
+// 打印从start到end的最短路径
+void printPath(int path[], int start, int end)
+{
+    int route[MAX];
+    int count = 0;
+
+    int current = end;
+
+    // 从终点沿着前驱数组往回寻找
+    while(current != -1 && count < MAX)
+    {
+        route[count] = current;
+        count++;
+
+        if(current == start)
+        {
+            break;
+        }
+
+        current = path[current];
+    }
+
+    // 检查是否成功回到起点
+    if(count == 0 || route[count - 1] != start)
+    {
+        printf("路径不存在\n");
+        return;
+    }
+
+    // 倒序打印，转换为起点到终点
+    for(int i = count - 1; i >= 0; i--)
+    {
+        printf("%d", route[i]);
+
+        if(i > 0)
+        {
+            printf(" -> ");
+        }
+    }
+
+    printf("\n");
+}
+
 
 int main(void)
 {
-    Graph graph;
+    Graph g;
 
-    // 1. 初始化并加载地图
-     loadMap(&g,"data/map/a.txt");
-    // 此处替换成你现有的地图加载函数
-    // 例如：loadMap(&graph, "data/hit.txt");
-
-    // 注意：必须确保 graph.sum 已正确初始化
-
-    if(graph.sum <= 0)
+    // 1. 读取地图
+    if(loadMap(&g, "data/map/a.txt") == 0)
     {
-        printf("错误：地图中没有顶点！\n");
+        printf("地图读取失败！\n");
         return 1;
     }
 
-    // 2. 初始化随机数种子
+    printf("地图读取成功！\n");
+
+    printf("顶点数量：%d\n", g.vertexCount);
+    printf("道路数量：%d\n", g.edgeCount);
+
+
+    // 2. 生成5个随机订单
     srand((unsigned int)time(NULL));
 
-    // 3. 生成5个订单
     int count = 5;
 
-    Order *orders = generate(&graph, count);
+    Order *orders = generate(&g, count);
 
     if(orders == NULL)
     {
@@ -35,41 +81,55 @@ int main(void)
         return 1;
     }
 
-    // 4. 打印订单
-    printf("\n========== 订单生成结果 ==========\n");
+
+    printf("\n========== 随机订单 ==========\n");
 
     for(int i = 0; i < count; i++)
     {
-        printf("订单号：%d  配送点编号：%d\n",
+        int index = orders[i].pointid;
+
+        printf("订单%d：顶点%d 坐标(%.2f, %.2f)\n",
                orders[i].id,
-               orders[i].pointid);
+               index,
+               g.vertices[index].x,
+               g.vertices[index].y);
     }
 
-    // 5. 验证订单编号和顶点编号
-    int passed = 1;
 
-    for(int i = 0; i < count; i++)
+    // 3. 以订单1的配送点作为Dijkstra起点
+    int start = orders[0].pointid;
+
+    double dist[MAX];
+    int path[MAX];
+
+    dijkstra(&g, start, dist, path);
+
+
+    // 4. 打印订单1到其他订单的最短距离
+    printf("\n========== 最短路径测试 ==========\n");
+
+    for(int i = 1; i < count; i++)
     {
-        if(orders[i].id != i + 1 ||
-           orders[i].pointid < 1 ||
-           orders[i].pointid > graph.sum)
+        int end = orders[i].pointid;
+
+        printf("\n订单1 -> 订单%d\n", orders[i].id);
+
+        if(dist[end] >= INF)
         {
-            passed = 0;
-            printf("订单%d数据异常！\n", i + 1);
+            printf("两个配送点之间不存在道路！\n");
+            continue;
         }
+
+        printf("最短距离：%.2f\n", dist[end]);
+
+        printf("经过的顶点：");
+
+        printPath(path, start, end);
     }
 
-    if(passed)
-    {
-        printf("\n测试通过：5个订单编号及配送点范围均合法！\n");
-    }
-    else
-    {
-        printf("\n测试失败！\n");
-    }
 
-    // 6. 释放动态内存
+    // 5. 释放订单动态内存
     free_orders(orders);
 
-    return passed ? 0 : 1;
+    return 0;
 }

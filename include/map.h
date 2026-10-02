@@ -3,7 +3,7 @@
 #define MAX 10000//定义一个MAX
 typedef struct Edge{
     int index;// 指向哪个点
-    int weight;//边长
+    double weight;//边长
     struct Edge *next;//下一条边
 }Edge;
 typedef struct Vertex{
@@ -27,7 +27,7 @@ void initGraph(Graph *c);
 //添加节点
 void addVertex(Graph *c,double x,double y);
 //添加边
-void addEdge(Graph *c,int start ,int end,int weight);
+void addEdge(Graph *c,int start ,int end,double weight);
 //打印图
 void printGraph(Graph *c);
 int loadMap(Graph *g,char *filename);

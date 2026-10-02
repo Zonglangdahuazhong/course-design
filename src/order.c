@@ -35,9 +35,9 @@ Order *orders = (Order *)malloc(count * sizeof(Order));
  }
  
  for (int i = 0; i < count; i++) {
-int randomnum = rand()% graph->sum;
+int randomnum = rand()% graph->vertexCount;
 orders[i].id = i+1;
-orders[i].pointid= randomnum+1;
+orders[i].pointid= randomnum;
 
 
  }

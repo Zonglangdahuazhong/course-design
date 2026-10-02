@@ -38,11 +38,15 @@ int main()
 
     // 打印订单
     for(int i = 0; i < count; i++)
-    {
-        printf("订单%d -> 配送点%d\n",
-               orders[i].id,
-               orders[i].pointid);
-    }
+{
+    int index = orders[i].pointid;
+
+    printf("订单%d 配送点%d 坐标(%.8f, %.8f)\n",
+           orders[i].id,
+           index,
+           graph.vertices[index].x,
+           graph.vertices[index].y);
+}
 
     // 释放内存
     free_orders(orders);

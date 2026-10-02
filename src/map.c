@@ -24,9 +24,9 @@ int loadMap(Graph *g,char *filename){
     for (int i=0;i<edgeNum;i++){
         int start ;
         int end ;
-        int weight;
+        double weight;
          
-        fscanf(fp,"%d %d %d",&start,&end, &weight);
+        fscanf(fp,"%d %d %lf",&start,&end, &weight);
         addEdge(g,start-1,end-1,weight);
     }
     fclose(fp);
@@ -55,7 +55,7 @@ void addVertex(Graph *c,double x,double y)
     c->vertexCount++;//录入一次后点的总数加1.
 
 }
-void addEdge(Graph *c,int start, int end,int weight)//加边
+void addEdge(Graph *c,int start, int end,double weight)//加边
 {   Edge *p;//创建一个边节点
     p=(Edge*)malloc(sizeof(Edge));//申请一块内存
     p-> index=end;//边的终点
@@ -89,7 +89,7 @@ void printGraph(Graph *c)
         while(p!=NULL)
         {
 
-            printf(" -> 点%d 距离%d",
+            printf(" -> 点%d 距离%.8f",
                    c->vertices[p->index].id,
                    p->weight);
 

@@ -1,6 +1,6 @@
 #include "dijkstra.h"
 #include <stdio.h>
-void dijstra(Graph *g,int start ,int dist[], int path []){
+void dijkstra(const Graph *g,int start ,double dist[], int path []){
     // 初始化
     int visited[MAX]={0};
     // 创建一个标记数组
@@ -8,11 +8,15 @@ void dijstra(Graph *g,int start ,int dist[], int path []){
         dist[i]=INF;
         path[i]=-1;
     }//初始最短路径未知
-    dist[strat]=0;//初始点到自己的距离为0
+    if(start < 0 || start >= g->vertexCount)//检验初始点
+    {
+        return;
+    }
+    dist[start]=0.0;//初始点到自己的距离为0
     for(int i=0;i<g->vertexCount;i++)
     //最多循环点数量次，因为每次确定一个点
     {
-        int min=INF;
+        double min=INF;
 
         int u=-1;
         for (int j=0;j<g->vertexCount;j++){
@@ -26,7 +30,7 @@ void dijstra(Graph *g,int start ,int dist[], int path []){
         if(u==-1)
           break;
         visited[u]=1;
-        Edge *p=g->vertices[u].first;//找到u的第一条边
+        const Edge *p=g->vertices[u].first;//找到u的第一条边
         
         while(p!=NULL)
         {
