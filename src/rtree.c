@@ -672,8 +672,8 @@ Root split
 
 */
 
-
- RTreeNode *insert_recursive(
+//static  该函数只在当前文件中使用  用户真正用的是insert
+ static RTreeNode *insert_recursive(
     RTreeNode *node,
     RTreeEntry entry
 )
@@ -700,10 +700,107 @@ Root split
 
         return group_b;
     }
+/* 当前节点是内部节点 */
+//选择合适的子树
+int index = choose_subtree(node, &entry);
+
+RTreeNode *child = (RTreeNode *)node->entries[index].child;
+
+RTreeNode *split_child =insert_recursive(child, entry);
+//内部节点没有分裂
+if (split_child == NULL) {
+
+    node->entries[index].mbr = node_mbr(child);
+
+    return NULL;
+}
+
+    /* 子节点发生了分裂 */
+
+node->entries[index] =node_to_entry(child);
+
+    RTreeEntry new_entry =node_to_entry(split_child);
 
 
-return NULL;
+    /* 当前节点还有空间 */
+    if (node->count < MAX_ENTRIES) {
 
+        insert_entry(node, new_entry);
+
+        return NULL;
+    }
+ RTreeNode *group_a = NULL;
+    RTreeNode *group_b = NULL;
+
+    split_node(
+        node,
+        new_entry,
+        &group_a,
+        &group_b
+    );
+
+    /* Group A 留在当前 node */
+    *node = *group_a;
+    free(group_a);
+
+    /* Group B 继续向上返回 */
+    return group_b;
+
+
+
+
+ 
     }
 
+//开始真正的插入   考虑根节点
+void rtree_insert(RTree *tree,const Order *order,const Graph *graph)
+{
+    if (tree == NULL ||
+        order == NULL ||
+        graph == NULL) {
+        return;
+    }
 
+    /* 如果树还没有 root */
+    if (tree->root == NULL) {
+        tree->root = create_node(1);
+
+        if (tree->root == NULL) {
+            return;
+        }
+    }
+
+    /* Order → RTreeEntry */
+    RTreeEntry entry;
+
+    entry.mbr =
+        order_mbr(order, graph);
+
+    entry.child =
+        (void *)order;
+
+    /* 从 root 开始递归插入 */
+    RTreeNode *split_root =
+        insert_recursive(
+            tree->root,
+            entry
+        );
+
+    /* root 没有分裂 */
+    if (split_root == NULL) {
+        return;
+    }
+
+    /* root 分裂，创建新的 root */
+    RTreeNode *new_root =
+        create_root(
+            tree->root,
+            split_root
+        );
+
+    if (new_root == NULL) {
+        return;
+    }
+
+    tree->root = new_root;
+}

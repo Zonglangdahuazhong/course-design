@@ -66,7 +66,8 @@ void split_node(RTreeNode *node,RTreeEntry new_entry,RTreeNode **group_a,RTreeNo
 void insert_entry_at(RTreeNode *node,int index,RTreeEntry entry );  
 void replace_entry_with_split(RTreeNode *parent,int index,RTreeNode *group_a,RTreeNode *group_b);
 void remove_entry(RTreeNode *node, int index);
- RTreeNode *insert_recursive(RTreeNode *node, RTreeEntry entry);
+ static RTreeNode *insert_recursive(RTreeNode *node, RTreeEntry entry);
+ void rtree_insert(RTree *tree,const Order *order,const Graph *graph);
 #endif              
 
 
