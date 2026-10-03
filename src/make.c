@@ -83,7 +83,7 @@ if (Matrix == NULL) {
     return 1;
 }
 
-
+/*
 int size = findcount + 1;
 
 printf("\n===== 距离矩阵 =====\n");
@@ -127,7 +127,7 @@ for (int i = 0; i < size; i++) {
     printf("\n");
 }
 
-
+*/
  Route *route=solve_tsp(Matrix,findcount+1);
 
 

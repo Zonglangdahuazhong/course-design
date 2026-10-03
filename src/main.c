@@ -1,24 +1,24 @@
-
-
 #include <stdio.h>
-#include <stdlib.h>
-#include"rtree.h"
-#include"dijkstra.h"
-#include"time.h"
-#include"make.h"
-#include <float.h>
-#include"tsp.h"
+#include <gtk/gtk.h>
+#include"order.h"
+#include "../include/graph.h"
+#include "../include/gui.h"
 
-int main()
+int main(int argc, char *argv[])
 {
-    int result = make(
-        500,
-        37,
-        122.06,
-        37.53,
-        122.07,
-        37.535
-    );
+    Graph *graph = mapload("data/map/hit.txt");
 
-    return result;
+    if (graph == NULL) {
+        printf("地图加载失败\n");
+        return 1;
+    }
+
+    printf("地图加载成功\n");
+    printf("节点数：%d\n", graph->sum);
+
+    gtk_init(&argc, &argv);
+
+    gui_start(graph);
+
+    return 0;
 }
