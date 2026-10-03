@@ -6,7 +6,7 @@
 
 int main(int argc, char *argv[])
 {
-    Graph *graph = mapload("data/map/hit.txt");
+    Graph *graph = mapload("data/map/testMatrx.txt");
 
     if (graph == NULL) {
         printf("地图加载失败\n");

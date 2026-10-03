@@ -48,7 +48,7 @@ printf("\n===== R树插入完成 =====\n");
   MBR query;
     query.min_x = x1;
     query.min_y = y1;
-    query.max_x = x2;
+    query.max_x = x2; 
     query.max_y = y2;
 Order *results[count];
 
