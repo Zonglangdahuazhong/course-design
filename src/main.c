@@ -7,6 +7,7 @@
 #include"time.h"
 #include"make.h"
 #include <float.h>
+#include"tsp.h"
 
 int main()
 {

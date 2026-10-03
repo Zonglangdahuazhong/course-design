@@ -10,7 +10,7 @@
 #include"dijkstra.h"
 #include"time.h"
 #include"make.h"
-
+#include"tsp.h"
 #include <float.h>
 
 
@@ -25,11 +25,12 @@ Graph *graph = mapload("data//map/testMatrx.txt");
     }
     printf("地图加载成功\n");
     printf("节点数：%d\n", graph->sum);
-    printGraph(graph);
+  
    int order_count = count;
-    
+ 
     Order *orders = generate(graph, order_count);
     
+
     if (orders == NULL) {
         printf("订单内存分配失败\n");
         return 1;
@@ -82,6 +83,7 @@ if (Matrix == NULL) {
     return 1;
 }
 
+/*
 int size = findcount + 1;
 
 printf("\n===== 距离矩阵 =====\n");
@@ -124,9 +126,30 @@ for (int i = 0; i < size; i++) {
 
     printf("\n");
 }
+*/
+
+ Route *route=solve_tsp(Matrix,findcount+1);
 
 
-freeMatrix(Matrix,size);
+
+
+    if (route == NULL) {
+
+        printf("TSP求解失败\n");
+        freeMatrix(Matrix, findcount + 1);
+
     free_orders(orders);
-    return 0;
-}
+
+        return 1;
+    }
+
+
+    printf("\n===== TSP结果 =====\n");
+
+    print_route(route);
+
+
+     free_route(route);
+     freeMatrix(Matrix,findcount+1);
+    free_orders(orders);
+    return 0;}
