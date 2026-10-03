@@ -1,8 +1,8 @@
-#include <stdio.h>
-#include <stdlib.h>
-#include <math.h>
 #include <gtk/gtk.h>
 #include <cairo.h>
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
 
 #include "../include/gui.h"
 #include "../include/graph.h"
@@ -12,43 +12,36 @@
 #include "../include/tsp.h"
 
 
+/* ============================================================
+ * MapView
+ * ============================================================ */
+
 typedef struct {
 
     Graph *graph;
 
+    /* 地图原始范围 */
     double min_x;
     double max_x;
     double min_y;
     double max_y;
 
-    /*
-     * 地图显示变换
-     *
-     * scale：
-     *     X、Y统一缩放比例
-     *
-     * offset_x / offset_y：
-     *     地图在窗口中的偏移量
-     */
+    /* 当前缩放和平移 */
     double scale;
     double offset_x;
     double offset_y;
 
-
-    /* 所有订单 */
+    /* 订单 */
     Order *orders;
     int order_count;
 
-
     /* R树 */
     RTree *rtree;
-
 
     /* GUI */
     GtkWidget *drawing_area;
     GtkWidget *entry;
     GtkWidget *status_label;
-
 
     /* 查询框 */
     gboolean query_selecting;
@@ -62,38 +55,120 @@ typedef struct {
 
     MBR query_mbr;
 
-
-    /* R树查询结果 */
     Order **query_results;
     int query_result_count;
 
-
-    /* TSP最终路线 */
+    /* TSP 路线 */
     Route *route;
 
-
-    /* 配送中心，0-based */
+    /* 配送中心，Graph 内部使用 0-based */
     int base;
+
+    /* ========================================================
+     * 鼠标拖动地图
+     * ======================================================== */
+
+    gboolean panning;
+    double pan_start_x;
+    double pan_start_y;
+
+    double pan_old_offset_x;
+    double pan_old_offset_y;
 
 } MapView;
 
 
-/* =========================================================
- * 计算地图到屏幕的变换
- *
- * 保证：
- *
- * 1. 地图完整显示
- * 2. X/Y使用相同缩放比例
- * 3. 地图自动居中
- * 4. 四周留出边距
- * ========================================================= */
+/* ============================================================
+ * 坐标变换
+ * ============================================================ */
 
-static void update_transform(
-    MapView *view,
-    double width,
-    double height
-)
+static double to_screen_x(MapView *view, double x)
+{
+    return view->offset_x +
+           (x - view->min_x) * view->scale;
+}
+
+
+static double to_screen_y(MapView *view, double y)
+{
+    double display_height =
+        (view->max_y - view->min_y) * view->scale;
+
+    return view->offset_y +
+           display_height -
+           (y - view->min_y) * view->scale;
+}
+
+
+/*
+ * 屏幕坐标 → 地图坐标
+ */
+
+static double to_map_x(MapView *view, double x)
+{
+    return view->min_x +
+           (x - view->offset_x) / view->scale;
+}
+
+
+static double to_map_y(MapView *view, double y)
+{
+    double display_height =
+        (view->max_y - view->min_y) * view->scale;
+
+    return view->min_y +
+           (display_height -
+            (y - view->offset_y)) /
+           view->scale;
+}
+
+
+/* ============================================================
+ * 初始化地图范围
+ * ============================================================ */
+
+static void calculate_map_bounds(MapView *view)
+{
+    if (view->graph == NULL ||
+        view->graph->sum <= 0) {
+        return;
+    }
+
+    view->min_x = view->graph->points[0].x;
+    view->max_x = view->graph->points[0].x;
+
+    view->min_y = view->graph->points[0].y;
+    view->max_y = view->graph->points[0].y;
+
+    for (int i = 1;
+         i < view->graph->sum;
+         i++) {
+
+        double x = view->graph->points[i].x;
+        double y = view->graph->points[i].y;
+
+        if (x < view->min_x)
+            view->min_x = x;
+
+        if (x > view->max_x)
+            view->max_x = x;
+
+        if (y < view->min_y)
+            view->min_y = y;
+
+        if (y > view->max_y)
+            view->max_y = y;
+    }
+}
+
+
+/* ============================================================
+ * 初始化缩放
+ * ============================================================ */
+
+static void init_transform(MapView *view,
+                           double width,
+                           double height)
 {
     double map_width =
         view->max_x - view->min_x;
@@ -101,26 +176,13 @@ static void update_transform(
     double map_height =
         view->max_y - view->min_y;
 
-
-    /*
-     * 防止除0
-     */
-
-    if (map_width <= 0) {
+    if (map_width <= 0)
         map_width = 1;
-    }
 
-    if (map_height <= 0) {
+    if (map_height <= 0)
         map_height = 1;
-    }
 
-
-    /*
-     * 地图四周留30像素
-     */
-
-    double margin = 30.0;
-
+    double margin = 40.0;
 
     double available_width =
         width - 2.0 * margin;
@@ -128,19 +190,11 @@ static void update_transform(
     double available_height =
         height - 2.0 * margin;
 
-
-    if (available_width <= 0) {
+    if (available_width <= 0)
         available_width = width;
-    }
 
-    if (available_height <= 0) {
+    if (available_height <= 0)
         available_height = height;
-    }
-
-
-    /*
-     * X和Y分别计算缩放比例
-     */
 
     double scale_x =
         available_width / map_width;
@@ -148,31 +202,14 @@ static void update_transform(
     double scale_y =
         available_height / map_height;
 
-
-    /*
-     * 取较小值
-     *
-     * 这样整个地图一定能够放进窗口。
-     */
-
     view->scale =
         fmin(scale_x, scale_y);
-
-
-    /*
-     * 地图实际显示尺寸
-     */
 
     double display_width =
         map_width * view->scale;
 
     double display_height =
         map_height * view->scale;
-
-
-    /*
-     * 居中
-     */
 
     view->offset_x =
         (width - display_width) / 2.0;
@@ -182,211 +219,113 @@ static void update_transform(
 }
 
 
-/* =========================================================
- * 地图坐标 → 屏幕X
- * ========================================================= */
+/* ============================================================
+ * 找最近地图节点
+ * ============================================================ */
 
-static double to_screen_x(
-    MapView *view,
-    double x
-)
+static int find_nearest_node(MapView *view,
+                             double screen_x,
+                             double screen_y)
 {
-    return
-        view->offset_x
-        +
-        (x - view->min_x)
-        * view->scale;
-}
+    if (view->graph == NULL)
+        return -1;
 
+    double best_dist = 1e100;
+    int best_node = -1;
 
-/* =========================================================
- * 地图坐标 → 屏幕Y
- *
- * 地图坐标：
- *
- *     Y越大越靠上
- *
- * Cairo：
- *
- *     Y越大越靠下
- *
- * 所以需要翻转。
- * ========================================================= */
+    /*
+     * 鼠标位置转换成地图坐标
+     */
+    double map_x =
+        to_map_x(view, screen_x);
 
-static double to_screen_y(
-    MapView *view,
-    double y
-)
-{
-    double display_height =
-        (view->max_y - view->min_y)
-        * view->scale;
-
-
-    return
-        view->offset_y
-        +
-        display_height
-        -
-        (y - view->min_y)
-        * view->scale;
-}
-
-
-/* =========================================================
- * 屏幕X → 地图坐标
- * ========================================================= */
-
-static double to_map_x(
-    MapView *view,
-    double x
-)
-{
-    return
-        view->min_x
-        +
-        (x - view->offset_x)
-        / view->scale;
-}
-
-
-/* =========================================================
- * 屏幕Y → 地图坐标
- * ========================================================= */
-
-static double to_map_y(
-    MapView *view,
-    double y
-)
-{
-    double display_height =
-        (view->max_y - view->min_y)
-        * view->scale;
-
-
-    return
-        view->min_y
-        +
-        (
-            display_height
-            -
-            (y - view->offset_y)
-        )
-        / view->scale;
-}
-
-
-/* =========================================================
- * 找离鼠标最近的地图节点
- * ========================================================= */
-
-static int find_nearest_node(
-    MapView *view,
-    double sx,
-    double sy
-)
-{
-    int nearest = -1;
-
-    double min_dist = 1e100;
-
+    double map_y =
+        to_map_y(view, screen_y);
 
     for (int i = 0;
          i < view->graph->sum;
          i++) {
 
-        double x =
-            to_screen_x(
-                view,
-                view->graph->points[i].x
-            );
-
-
-        double y =
-            to_screen_y(
-                view,
-                view->graph->points[i].y
-            );
-
-
         double dx =
-            x - sx;
+            view->graph->points[i].x -
+            map_x;
 
         double dy =
-            y - sy;
+            view->graph->points[i].y -
+            map_y;
 
-
-        double dist =
+        double d =
             dx * dx + dy * dy;
 
-
-        if (dist < min_dist) {
-
-            min_dist = dist;
-            nearest = i;
+        if (d < best_dist) {
+            best_dist = d;
+            best_node = i;
         }
     }
 
-
-    return nearest;
+    return best_node;
 }
 
 
-/* =========================================================
- * 判断订单是否属于R树查询结果
- * ========================================================= */
+/* ============================================================
+ * 生成订单
+ * ============================================================ */
 
-static int is_query_result(
-    MapView *view,
-    Order *order
-)
+static void generate_orders(MapView *view,
+                            int count)
 {
-    for (int i = 0;
-         i < view->query_result_count;
-         i++) {
+    if (count <= 0)
+        return;
 
-        if (view->query_results[i] == order) {
-            return 1;
-        }
+    if (view->orders != NULL) {
+        free(view->orders);
+        view->orders = NULL;
     }
 
-    return 0;
-}
+    view->orders =
+        generate(view->graph, count);
 
+    if (view->orders == NULL) {
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "订单生成失败"
+        );
+        return;
+    }
 
-/* =========================================================
- * 重新建立R树
- * ========================================================= */
+    view->order_count = count;
 
-static void rebuild_rtree(
-    MapView *view
-)
-{
+    /*
+     * R树重新建立
+     *
+     * 注意：
+     * orders 是动态数组，R树中的 Order* 必须
+     * 指向新的 orders 数组。
+     */
+
     if (view->rtree == NULL) {
 
         view->rtree =
             malloc(sizeof(RTree));
 
         if (view->rtree == NULL) {
-
-            printf("R树内存分配失败\n");
             return;
         }
+
+        view->rtree->root = NULL;
     }
 
-
     /*
-     * 暂时不调用 rtree_free()
+     * 当前版本暂时不调用 rtree_free()
+     * 避免之前遇到的内存错误。
      *
-     * 之前的 rtree_free()
-     * 存在内存破坏问题。
+     * 这里重新建立 root。
      */
 
     view->rtree->root = NULL;
 
-
     for (int i = 0;
-         i < view->order_count;
+         i < count;
          i++) {
 
         rtree_insert(
@@ -396,92 +335,284 @@ static void rebuild_rtree(
         );
     }
 
+    /*
+     * 清空旧查询结果
+     */
 
-    printf(
-        "R树重建完成，共插入 %d 个订单\n",
-        view->order_count
+    if (view->query_results != NULL) {
+        free(view->query_results);
+        view->query_results = NULL;
+    }
+
+    view->query_result_count = 0;
+    view->query_area_valid = FALSE;
+
+    /*
+     * 清空旧路线
+     */
+
+    if (view->route != NULL) {
+        free_route(view->route);
+        view->route = NULL;
+    }
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        "订单生成完成"
+    );
+
+    gtk_widget_queue_draw(view->drawing_area);
+}
+
+
+/* ============================================================
+ * R树查询
+ * ============================================================ */
+
+static void do_rtree_query(MapView *view)
+{
+    if (!view->query_area_valid) {
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "请先在地图上拖动选择查询区域"
+        );
+
+        return;
+    }
+
+    if (view->rtree == NULL ||
+        view->rtree->root == NULL) {
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "R树为空"
+        );
+
+        return;
+    }
+
+    /*
+     * 先释放旧结果
+     */
+
+    if (view->query_results != NULL) {
+        free(view->query_results);
+        view->query_results = NULL;
+    }
+
+    if (view->order_count <= 0)
+        return;
+
+    view->query_results =
+        malloc(view->order_count *
+               sizeof(Order *));
+
+    if (view->query_results == NULL) {
+        return;
+    }
+
+    view->query_result_count =
+        rtree_query(
+            view->rtree->root,
+            view->query_mbr,
+            view->query_results,
+            view->order_count
+        );
+
+    char text[128];
+
+    snprintf(
+        text,
+        sizeof(text),
+        "R树查询完成：找到 %d 个订单",
+        view->query_result_count
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        text
+    );
+
+    /*
+     * 查询之后旧路线作废
+     */
+
+    if (view->route != NULL) {
+        free_route(view->route);
+        view->route = NULL;
+    }
+
+    gtk_widget_queue_draw(view->drawing_area);
+}
+
+
+/* ============================================================
+ * 生成配送路线
+ *
+ * R树结果
+ *     ↓
+ * generateMatrix()
+ *     ↓
+ * solve_tsp()
+ * ============================================================ */
+
+static void start_delivery(MapView *view)
+{
+    if (view->query_result_count <= 0) {
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "没有查询到订单"
+        );
+
+        return;
+    }
+
+    /*
+     * 清除旧路线
+     */
+
+    if (view->route != NULL) {
+        free_route(view->route);
+        view->route = NULL;
+    }
+
+    /*
+     * 生成目标点距离矩阵
+     *
+     * matrix:
+     *
+     * 0 = base
+     * 1 = query_results[0]
+     * 2 = query_results[1]
+     * ...
+     */
+
+    double **matrix =
+        generateMatrix(
+            view->graph,
+            view->query_results,
+            view->query_result_count,
+            view->base
+        );
+
+    if (matrix == NULL) {
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "距离矩阵生成失败"
+        );
+
+        return;
+    }
+
+    /*
+     * TSP
+     */
+
+    view->route =
+        solve_tsp(
+            matrix,
+            view->query_result_count + 1
+        );
+
+    if (view->route == NULL) {
+
+        freeMatrix(
+            matrix,
+            view->query_result_count + 1
+        );
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "TSP路线计算失败"
+        );
+
+        return;
+    }
+
+    char text[256];
+
+    snprintf(
+        text,
+        sizeof(text),
+        "配送路线生成完成，共 %d 个节点，总距离 %.2f",
+        view->route->count,
+        view->route->distance
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        text
+    );
+
+    freeMatrix(
+        matrix,
+        view->query_result_count + 1
+    );
+
+    gtk_widget_queue_draw(
+        view->drawing_area
     );
 }
 
 
-/* =========================================================
- * 绘制道路
- * ========================================================= */
+/* ============================================================
+ * 画地图道路
+ * ============================================================ */
 
-static void draw_roads(
-    cairo_t *cr,
-    MapView *view
-)
+static void draw_map_roads(cairo_t *cr,
+                           MapView *view)
 {
-    cairo_set_source_rgb(
-        cr,
-        0.75,
-        0.75,
-        0.75
-    );
+    cairo_set_line_width(cr, 1.0);
 
-
-    cairo_set_line_width(
-        cr,
-        1.0
-    );
-
+    /*
+     * 普通道路
+     */
 
     for (int i = 0;
          i < view->graph->sum;
          i++) {
 
-        Point *p =
-            &view->graph->points[i];
-
-
         double x1 =
             to_screen_x(
                 view,
-                p->x
+                view->graph->points[i].x
             );
-
 
         double y1 =
             to_screen_y(
                 view,
-                p->y
+                view->graph->points[i].y
             );
 
+        for (Edge *edge =
+                 view->graph->adj[i];
+             edge != NULL;
+             edge = edge->next) {
 
-        for (
-            Edge *edge = view->graph->adj[i];
-            edge != NULL;
-            edge = edge->next
-        ) {
+            int j = edge->to;
 
-            int to =
-                edge->to;
+            /*
+             * 为了避免一条双向道路画两遍，
+             * 这里只画 i < j。
+             */
 
-
-            if (to < 0 ||
-                to >= view->graph->sum) {
+            if (j < i)
                 continue;
-            }
-
-
-            Point *q =
-                &view->graph->points[to];
-
 
             double x2 =
                 to_screen_x(
                     view,
-                    q->x
+                    view->graph->points[j].x
                 );
-
 
             double y2 =
                 to_screen_y(
                     view,
-                    q->y
+                    view->graph->points[j].y
                 );
-
 
             cairo_move_to(
                 cr,
@@ -489,13 +620,11 @@ static void draw_roads(
                 y1
             );
 
-
             cairo_line_to(
                 cr,
                 x2,
                 y2
             );
-
 
             cairo_stroke(cr);
         }
@@ -503,149 +632,143 @@ static void draw_roads(
 }
 
 
-/* =========================================================
- * 绘制订单
- * ========================================================= */
+/* ============================================================
+ * 画订单
+ * ============================================================ */
 
-static void draw_orders(
-    cairo_t *cr,
-    MapView *view
-)
+static void draw_orders(cairo_t *cr,
+                        MapView *view)
 {
+    if (view->orders == NULL)
+        return;
+
     for (int i = 0;
          i < view->order_count;
          i++) {
 
-        Order *order =
-            &view->orders[i];
+        int node =
+            view->orders[i].pointid - 1;
 
-
-        int point_index =
-            order->pointid - 1;
-
-
-        if (point_index < 0 ||
-            point_index >= view->graph->sum) {
+        if (node < 0 ||
+            node >= view->graph->sum)
             continue;
-        }
-
-
-        Point *p =
-            &view->graph->points[point_index];
-
 
         double x =
             to_screen_x(
                 view,
-                p->x
+                view->graph->points[node].x
             );
-
 
         double y =
             to_screen_y(
                 view,
-                p->y
+                view->graph->points[node].y
             );
-
 
         /*
-         * 查询到的订单：红色
+         * 判断是不是查询结果
          */
 
-        if (is_query_result(view, order)) {
+        gboolean selected = FALSE;
 
-            cairo_set_source_rgb(
-                cr,
-                1.0,
-                0.1,
-                0.1
-            );
+        for (int j = 0;
+             j < view->query_result_count;
+             j++) {
 
+            if (view->query_results[j] ==
+                &view->orders[i]) {
 
+                selected = TRUE;
+                break;
+            }
+        }
+
+        /*
+         * 查询到的订单画大一点
+         */
+
+        if (selected) {
             cairo_arc(
                 cr,
                 x,
                 y,
-                7.0,
+                5.0,
                 0,
                 2 * M_PI
             );
-
-
-            cairo_fill(cr);
-        }
-
-
-        /*
-         * 普通订单：蓝色
-         */
-
-        else {
-
-            cairo_set_source_rgb(
-                cr,
-                0.1,
-                0.3,
-                0.9
-            );
-
-
+        } else {
             cairo_arc(
                 cr,
                 x,
                 y,
-                4.0,
+                3.0,
                 0,
                 2 * M_PI
             );
-
-
-            cairo_fill(cr);
         }
+
+        cairo_fill(cr);
+
+        /*
+         * 订单编号
+         */
+
+        cairo_move_to(
+            cr,
+            x + 6,
+            y - 6
+        );
+
+        cairo_set_font_size(
+            cr,
+            11
+        );
+
+        char text[32];
+
+        snprintf(
+            text,
+            sizeof(text),
+            "%d",
+            view->orders[i].id
+        );
+
+        cairo_show_text(
+            cr,
+            text
+        );
     }
 }
 
 
-/* =========================================================
- * 绘制配送中心
- * ========================================================= */
+/* ============================================================
+ * 画配送中心
+ * ============================================================ */
 
-static void draw_base(
-    cairo_t *cr,
-    MapView *view
-)
+static void draw_base(cairo_t *cr,
+                      MapView *view)
 {
-    if (view->base < 0 ||
-        view->base >= view->graph->sum) {
+    int node = view->base;
+
+    if (node < 0 ||
+        node >= view->graph->sum)
         return;
-    }
-
-
-    Point *p =
-        &view->graph->points[view->base];
-
 
     double x =
         to_screen_x(
             view,
-            p->x
+            view->graph->points[node].x
         );
-
 
     double y =
         to_screen_y(
             view,
-            p->y
+            view->graph->points[node].y
         );
 
-
-    cairo_set_source_rgb(
-        cr,
-        0.1,
-        0.7,
-        0.1
-    );
-
+    /*
+     * 画一个方形表示配送中心
+     */
 
     cairo_rectangle(
         cr,
@@ -655,67 +778,469 @@ static void draw_base(
         14
     );
 
-
     cairo_fill(cr);
+
+    cairo_move_to(
+        cr,
+        x + 10,
+        y - 8
+    );
+
+    cairo_set_font_size(
+        cr,
+        13
+    );
+
+    cairo_show_text(
+        cr,
+        "起"
+    );
 }
 
 
-/* =========================================================
- * 绘制查询区域
- * ========================================================= */
+/* ============================================================
+ * 根据 prev[] 恢复路径
+ *
+ * start → end
+ *
+ * prev[end]
+ *    ↓
+ * prev[...]
+ *    ↓
+ * start
+ *
+ * 最后反过来就是：
+ *
+ * start → ... → end
+ * ============================================================ */
 
-static void draw_query_area(
-    cairo_t *cr,
-    MapView *view
-)
+static int *reconstruct_path(
+    int start,
+    int end,
+    int *prev,
+    int n,
+    int *path_length)
 {
-    if (!view->query_area_valid &&
-        !view->query_selecting) {
+    int *reverse_path =
+        malloc(n * sizeof(int));
+
+    if (reverse_path == NULL)
+        return NULL;
+
+    int count = 0;
+    int current = end;
+
+    while (current != -1 &&
+           count < n) {
+
+        reverse_path[count++] =
+            current;
+
+        if (current == start)
+            break;
+
+        current = prev[current];
+    }
+
+    /*
+     * 没有找到 start
+     */
+
+    if (count == 0 ||
+        reverse_path[count - 1] != start) {
+
+        free(reverse_path);
+        return NULL;
+    }
+
+    /*
+     * 翻转
+     */
+
+    int *path =
+        malloc(count * sizeof(int));
+
+    if (path == NULL) {
+
+        free(reverse_path);
+        return NULL;
+    }
+
+    for (int i = 0;
+         i < count;
+         i++) {
+
+        path[i] =
+            reverse_path[count - 1 - i];
+    }
+
+    free(reverse_path);
+
+    *path_length = count;
+
+    return path;
+}
+
+
+/* ============================================================
+ * 根据 TSP 路线确定实际图节点
+ *
+ * route index:
+ *
+ * 0 → base
+ * 1 → query_results[0]
+ * 2 → query_results[1]
+ * ...
+ * ============================================================ */
+
+static int route_index_to_graph_node(
+    MapView *view,
+    int route_index)
+{
+    if (route_index == 0) {
+        return view->base;
+    }
+
+    int result_index =
+        route_index - 1;
+
+    if (result_index < 0 ||
+        result_index >=
+            view->query_result_count) {
+
+        return -1;
+    }
+
+    return
+        view->query_results[result_index]
+            ->pointid - 1;
+}
+
+
+/* ============================================================
+ * 画真实配送路线
+ *
+ * TSP：
+ *
+ * base → order3 → order1 → order2
+ *
+ * 对每一段：
+ *
+ * Dijkstra
+ *     ↓
+ * prev[]
+ *     ↓
+ * 恢复真实道路
+ * ============================================================ */
+
+static void draw_delivery_route(
+    cairo_t *cr,
+    MapView *view)
+{
+    if (view->route == NULL)
+        return;
+
+    if (view->route->count < 2)
+        return;
+
+    int n = view->graph->sum;
+
+    double *dist =
+        malloc(n * sizeof(double));
+
+    int *prev =
+        malloc(n * sizeof(int));
+
+    if (dist == NULL ||
+        prev == NULL) {
+
+        free(dist);
+        free(prev);
         return;
     }
 
-
-    double left =
-        fmin(
-            view->drag_start_x,
-            view->drag_end_x
-        );
-
-
-    double top =
-        fmin(
-            view->drag_start_y,
-            view->drag_end_y
-        );
-
-
-    double width =
-        fabs(
-            view->drag_end_x -
-            view->drag_start_x
-        );
-
-
-    double height =
-        fabs(
-            view->drag_end_y -
-            view->drag_start_y
-        );
-
-
-    cairo_set_source_rgb(
-        cr,
-        0.2,
-        0.4,
-        1.0
-    );
-
+    /*
+     * 配送路线使用较粗的线
+     */
 
     cairo_set_line_width(
         cr,
-        2.0
+        3.5
     );
 
+    /*
+     * 逐段处理 TSP 路线
+     */
+
+    for (int i = 0;
+         i < view->route->count - 1;
+         i++) {
+
+        int route_a =
+            view->route->route[i];
+
+        int route_b =
+            view->route->route[i + 1];
+
+        int start =
+            route_index_to_graph_node(
+                view,
+                route_a
+            );
+
+        int end =
+            route_index_to_graph_node(
+                view,
+                route_b
+            );
+
+        if (start < 0 ||
+            end < 0)
+            continue;
+
+        /*
+         * 从 start 跑 Dijkstra
+         */
+
+        dijkstra(
+            view->graph,
+            start,
+            dist,
+            prev
+        );
+
+        /*
+         * 恢复 start → end 的真实道路
+         */
+
+        int path_length = 0;
+
+        int *path =
+            reconstruct_path(
+                start,
+                end,
+                prev,
+                n,
+                &path_length
+            );
+
+        if (path == NULL)
+            continue;
+
+        /*
+         * 把真实道路画出来
+         */
+
+        for (int j = 0;
+             j < path_length;
+             j++) {
+
+            int node =
+                path[j];
+
+            double x =
+                to_screen_x(
+                    view,
+                    view->graph->points[node].x
+                );
+
+            double y =
+                to_screen_y(
+                    view,
+                    view->graph->points[node].y
+                );
+
+            if (j == 0) {
+
+                cairo_move_to(
+                    cr,
+                    x,
+                    y
+                );
+
+            } else {
+
+                cairo_line_to(
+                    cr,
+                    x,
+                    y
+                );
+            }
+        }
+
+        cairo_stroke(cr);
+
+        free(path);
+    }
+
+    free(dist);
+    free(prev);
+}
+
+
+/* ============================================================
+ * 显示配送顺序
+ *
+ * 例如：
+ *
+ * 起
+ *  ↓
+ * ①
+ *  ↓
+ * ②
+ *  ↓
+ * ③
+ * ============================================================ */
+
+static void draw_delivery_order(
+    cairo_t *cr,
+    MapView *view)
+{
+    if (view->route == NULL)
+        return;
+
+    cairo_set_font_size(
+        cr,
+        14
+    );
+
+    for (int i = 0;
+         i < view->route->count;
+         i++) {
+
+        int route_index =
+            view->route->route[i];
+
+        int node =
+            route_index_to_graph_node(
+                view,
+                route_index
+            );
+
+        if (node < 0)
+            continue;
+
+        double x =
+            to_screen_x(
+                view,
+                view->graph->points[node].x
+            );
+
+        double y =
+            to_screen_y(
+                view,
+                view->graph->points[node].y
+            );
+
+        /*
+         * 配送中心
+         */
+
+        if (i == 0) {
+
+            cairo_move_to(
+                cr,
+                x + 10,
+                y + 18
+            );
+
+            cairo_show_text(
+                cr,
+                "起"
+            );
+
+            continue;
+        }
+
+        /*
+         * 订单配送顺序
+         *
+         * 使用普通数字：
+         *
+         * 1
+         * 2
+         * 3
+         *
+         * 比 Unicode 圆圈数字更稳定。
+         */
+
+        char text[32];
+
+        snprintf(
+            text,
+            sizeof(text),
+            "%d",
+            i
+        );
+
+        /*
+         * 画一个小圆圈
+         */
+
+        cairo_arc(
+            cr,
+            x,
+            y,
+            9,
+            0,
+            2 * M_PI
+        );
+
+        cairo_stroke(cr);
+
+        /*
+         * 数字
+         */
+
+        cairo_move_to(
+            cr,
+            x - 4,
+            y + 5
+        );
+
+        cairo_show_text(
+            cr,
+            text
+        );
+    }
+}
+
+
+/* ============================================================
+ * 画查询矩形
+ * ============================================================ */
+
+static void draw_query_rectangle(
+    cairo_t *cr,
+    MapView *view)
+{
+    if (!view->query_selecting &&
+        !view->query_area_valid)
+        return;
+
+    double x1 =
+        view->drag_start_x;
+
+    double y1 =
+        view->drag_start_y;
+
+    double x2 =
+        view->drag_end_x;
+
+    double y2 =
+        view->drag_end_y;
+
+    double left =
+        fmin(x1, x2);
+
+    double top =
+        fmin(y1, y2);
+
+    double width =
+        fabs(x2 - x1);
+
+    double height =
+        fabs(y2 - y1);
 
     cairo_rectangle(
         cr,
@@ -725,352 +1250,485 @@ static void draw_query_area(
         height
     );
 
-
     cairo_stroke(cr);
 }
 
 
-/* =========================================================
- * 绘制TSP配送路线
- *
- * Route中的route[i]：
- *
- *     不是地图节点ID
- *
- * 而是距离矩阵中的下标：
- *
- *     0 = base
- *     1 = query_results[0]
- *     2 = query_results[1]
- *     ...
- *
- * 注意：
- * 目前这里只画两个目标点之间的直线。
- *
- * Dijkstra实际计算的是道路网络最短路径。
- * ========================================================= */
-
-static void draw_route(
-    cairo_t *cr,
-    MapView *view
-)
-{
-    if (view->route == NULL) {
-        return;
-    }
-
-
-    if (view->route->route == NULL) {
-        return;
-    }
-
-
-    if (view->route->count <= 1) {
-        return;
-    }
-
-
-    cairo_set_source_rgb(
-        cr,
-        1.0,
-        0.2,
-        0.1
-    );
-
-
-    cairo_set_line_width(
-        cr,
-        3.0
-    );
-
-
-    for (int i = 0;
-         i < view->route->count - 1;
-         i++) {
-
-        int a =
-            view->route->route[i];
-
-
-        int b =
-            view->route->route[i + 1];
-
-
-        int point_a;
-        int point_b;
-
-
-        /*
-         * a
-         */
-
-        if (a == 0) {
-
-            point_a =
-                view->base;
-        }
-
-        else {
-
-            int index =
-                a - 1;
-
-
-            if (index < 0 ||
-                index >= view->query_result_count) {
-                continue;
-            }
-
-
-            point_a =
-                view->query_results[index]
-                ->pointid - 1;
-        }
-
-
-        /*
-         * b
-         */
-
-        if (b == 0) {
-
-            point_b =
-                view->base;
-        }
-
-        else {
-
-            int index =
-                b - 1;
-
-
-            if (index < 0 ||
-                index >= view->query_result_count) {
-                continue;
-            }
-
-
-            point_b =
-                view->query_results[index]
-                ->pointid - 1;
-        }
-
-
-        /*
-         * 检查地图节点
-         */
-
-        if (point_a < 0 ||
-            point_a >= view->graph->sum ||
-            point_b < 0 ||
-            point_b >= view->graph->sum) {
-            continue;
-        }
-
-
-        Point *p1 =
-            &view->graph->points[point_a];
-
-
-        Point *p2 =
-            &view->graph->points[point_b];
-
-
-        double x1 =
-            to_screen_x(
-                view,
-                p1->x
-            );
-
-
-        double y1 =
-            to_screen_y(
-                view,
-                p1->y
-            );
-
-
-        double x2 =
-            to_screen_x(
-                view,
-                p2->x
-            );
-
-
-        double y2 =
-            to_screen_y(
-                view,
-                p2->y
-            );
-
-
-        cairo_move_to(
-            cr,
-            x1,
-            y1
-        );
-
-
-        cairo_line_to(
-            cr,
-            x2,
-            y2
-        );
-
-
-        cairo_stroke(cr);
-    }
-}
-
-
-/* =========================================================
+/* ============================================================
  * 总绘图函数
- * ========================================================= */
+ * ============================================================ */
 
-static void draw_map(
+static gboolean draw_callback(
+    GtkWidget *widget,
     cairo_t *cr,
-    MapView *view
-)
+    gpointer data)
 {
+    MapView *view =
+        (MapView *)data;
+
     /*
      * 背景
      */
 
     cairo_set_source_rgb(
         cr,
-        0.96,
-        0.96,
-        0.96
+        1.0,
+        1.0,
+        1.0
     );
 
-
     cairo_paint(cr);
-
 
     /*
      * 道路
      */
 
-    draw_roads(
+    cairo_set_source_rgb(
+        cr,
+        0.75,
+        0.75,
+        0.75
+    );
+
+    draw_map_roads(
         cr,
         view
     );
 
-
     /*
      * 订单
      */
+
+    cairo_set_source_rgb(
+        cr,
+        0.1,
+        0.1,
+        0.8
+    );
 
     draw_orders(
         cr,
         view
     );
 
-
     /*
      * 配送中心
      */
+
+    cairo_set_source_rgb(
+        cr,
+        0.1,
+        0.1,
+        0.1
+    );
 
     draw_base(
         cr,
         view
     );
 
-
     /*
      * 查询框
      */
 
-    draw_query_area(
+    cairo_set_source_rgb(
+        cr,
+        0.2,
+        0.5,
+        0.9
+    );
+
+    draw_query_rectangle(
         cr,
         view
     );
-
 
     /*
-     * TSP路线最后画
+     * 实际配送路线
      */
 
-    draw_route(
+    cairo_set_source_rgb(
+        cr,
+        0.9,
+        0.1,
+        0.1
+    );
+
+    draw_delivery_route(
         cr,
         view
     );
-}
-
-
-/* =========================================================
- * GTK draw回调
- * ========================================================= */
-
-static gboolean draw_callback(
-    GtkWidget *widget,
-    cairo_t *cr,
-    gpointer data
-)
-{
-    MapView *view =
-        (MapView *)data;
-
-
-    int width =
-        gtk_widget_get_allocated_width(
-            widget
-        );
-
-
-    int height =
-        gtk_widget_get_allocated_height(
-            widget
-        );
-
 
     /*
-     * 根据当前窗口大小重新计算
-     * 地图缩放比例和偏移量。
-     *
-     * 所以窗口改变大小时，
-     * 地图也会自动重新适应。
+     * 配送顺序
      */
 
-    update_transform(
-        view,
-        width,
-        height
+    cairo_set_source_rgb(
+        cr,
+        0.9,
+        0.1,
+        0.1
     );
 
-
-    draw_map(
+    draw_delivery_order(
         cr,
         view
     );
-
 
     return FALSE;
 }
 
 
-/* =========================================================
- * 生成订单
- * ========================================================= */
+/* ============================================================
+ * 鼠标按下
+ * ============================================================ */
 
-static void generate_orders_callback(
+static gboolean button_press_callback(
     GtkWidget *widget,
-    gpointer data
-)
+    GdkEventButton *event,
+    gpointer data)
 {
     MapView *view =
         (MapView *)data;
 
+    /*
+     * 左键：
+     *
+     * 如果按住 Ctrl：
+     *     选择查询区域
+     *
+     * 普通左键：
+     *     拖动地图
+     */
+
+    if (event->button == 1) {
+
+        if (event->state &
+            GDK_CONTROL_MASK) {
+
+            /*
+             * 开始框选
+             */
+
+            view->query_selecting = TRUE;
+
+            view->drag_start_x =
+                event->x;
+
+            view->drag_start_y =
+                event->y;
+
+            view->drag_end_x =
+                event->x;
+
+            view->drag_end_y =
+                event->y;
+
+            gtk_widget_queue_draw(
+                widget
+            );
+
+        } else {
+
+            /*
+             * 开始平移地图
+             */
+
+            view->panning = TRUE;
+
+            view->pan_start_x =
+                event->x;
+
+            view->pan_start_y =
+                event->y;
+
+            view->pan_old_offset_x =
+                view->offset_x;
+
+            view->pan_old_offset_y =
+                view->offset_y;
+        }
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+
+/* ============================================================
+ * 鼠标移动
+ * ============================================================ */
+
+static gboolean motion_callback(
+    GtkWidget *widget,
+    GdkEventMotion *event,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    /*
+     * 框选
+     */
+
+    if (view->query_selecting) {
+
+        view->drag_end_x =
+            event->x;
+
+        view->drag_end_y =
+            event->y;
+
+        gtk_widget_queue_draw(
+            widget
+        );
+
+        return TRUE;
+    }
+
+    /*
+     * 平移地图
+     */
+
+    if (view->panning) {
+
+        double dx =
+            event->x -
+            view->pan_start_x;
+
+        double dy =
+            event->y -
+            view->pan_start_y;
+
+        view->offset_x =
+            view->pan_old_offset_x + dx;
+
+        view->offset_y =
+            view->pan_old_offset_y + dy;
+
+        gtk_widget_queue_draw(
+            widget
+        );
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+
+/* ============================================================
+ * 鼠标释放
+ * ============================================================ */
+
+static gboolean button_release_callback(
+    GtkWidget *widget,
+    GdkEventButton *event,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    if (event->button != 1)
+        return FALSE;
+
+    /*
+     * 完成查询框
+     */
+
+    if (view->query_selecting) {
+
+        view->query_selecting = FALSE;
+
+        view->drag_end_x =
+            event->x;
+
+        view->drag_end_y =
+            event->y;
+
+        /*
+         * 屏幕坐标 → 地图坐标
+         */
+
+        double x1 =
+            to_map_x(
+                view,
+                view->drag_start_x
+            );
+
+        double y1 =
+            to_map_y(
+                view,
+                view->drag_start_y
+            );
+
+        double x2 =
+            to_map_x(
+                view,
+                view->drag_end_x
+            );
+
+        double y2 =
+            to_map_y(
+                view,
+                view->drag_end_y
+            );
+
+        view->query_mbr.min_x =
+            fmin(x1, x2);
+
+        view->query_mbr.max_x =
+            fmax(x1, x2);
+
+        view->query_mbr.min_y =
+            fmin(y1, y2);
+
+        view->query_mbr.max_y =
+            fmax(y1, y2);
+
+        view->query_area_valid = TRUE;
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "查询区域选择完成，点击“R树查询”"
+        );
+
+        gtk_widget_queue_draw(
+            widget
+        );
+
+        return TRUE;
+    }
+
+    /*
+     * 结束平移
+     */
+
+    if (view->panning) {
+
+        view->panning = FALSE;
+
+        return TRUE;
+    }
+
+    return FALSE;
+}
+
+
+/* ============================================================
+ * 鼠标滚轮缩放
+ *
+ * 鼠标所在位置保持不动
+ * ============================================================ */
+
+static gboolean scroll_callback(
+    GtkWidget *widget,
+    GdkEventScroll *event,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    /*
+     * 当前鼠标位置对应的地图坐标
+     */
+
+    double mouse_map_x =
+        to_map_x(
+            view,
+            event->x
+        );
+
+    double mouse_map_y =
+        to_map_y(
+            view,
+            event->y
+        );
+
+    double old_scale =
+        view->scale;
+
+    double zoom_factor = 1.15;
+
+    if (event->direction ==
+        GDK_SCROLL_UP) {
+
+        view->scale *= zoom_factor;
+
+    } else if (event->direction ==
+               GDK_SCROLL_DOWN) {
+
+        view->scale /= zoom_factor;
+    }
+
+    /*
+     * 限制缩放范围
+     */
+
+    if (view->scale < 1.0)
+        view->scale = 1.0;
+
+    if (view->scale > old_scale * 1.15)
+        view->scale = old_scale * 1.15;
+
+    /*
+     * 保证鼠标位置对应的地图点
+     * 缩放前后仍然位于鼠标位置
+     *
+     * screen_x =
+     * offset_x +
+     * (map_x - min_x) * scale
+     */
+
+    view->offset_x =
+        event->x -
+        (mouse_map_x - view->min_x)
+        * view->scale;
+
+    double display_height =
+        (view->max_y - view->min_y)
+        * view->scale;
+
+    /*
+     * screen_y =
+     * offset_y +
+     * display_height -
+     * (map_y - min_y) * scale
+     */
+
+    view->offset_y =
+        event->y -
+        display_height +
+        (mouse_map_y - view->min_y)
+        * view->scale;
+
+    gtk_widget_queue_draw(
+        widget
+    );
+
+    return TRUE;
+}
+
+
+/* ============================================================
+ * 生成订单按钮
+ * ============================================================ */
+
+static void generate_button_callback(
+    GtkButton *button,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
 
     const char *text =
         gtk_entry_get_text(
             GTK_ENTRY(view->entry)
         );
 
-
     int count =
         atoi(text);
-
 
     if (count <= 0) {
 
@@ -1082,956 +1740,118 @@ static void generate_orders_callback(
         return;
     }
 
-
-    /*
-     * 删除旧订单
-     */
-
-    free(view->orders);
-
-    view->orders = NULL;
-
-    view->order_count = 0;
-
-
-    /*
-     * 生成新订单
-     */
-
-    view->orders =
-        generate(
-            view->graph,
-            count
-        );
-
-
-    if (view->orders == NULL) {
-
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "订单生成失败"
-        );
-
-        return;
-    }
-
-
-    view->order_count =
-        count;
-
-
-    /*
-     * 建立R树
-     */
-
-    rebuild_rtree(view);
-
-
-    /*
-     * 清除旧查询结果
-     */
-
-    free(view->query_results);
-
-    view->query_results = NULL;
-
-    view->query_result_count = 0;
-
-
-    /*
-     * 清除旧路线
-     */
-
-    if (view->route != NULL) {
-
-        free_route(view->route);
-
-        view->route = NULL;
-    }
-
-
-    view->query_area_valid =
-        FALSE;
-
-
-    gtk_label_set_text(
-        GTK_LABEL(view->status_label),
-        "订单生成完成"
-    );
-
-
-    gtk_widget_queue_draw(
-        view->drawing_area
-    );
-}
-
-
-/* =========================================================
- * 鼠标按下
- * ========================================================= */
-
-static gboolean map_button_press_callback(
-    GtkWidget *widget,
-    GdkEventButton *event,
-    gpointer data
-)
-{
-    MapView *view =
-        (MapView *)data;
-
-
-    if (event->button != 1) {
-        return FALSE;
-    }
-
-
-    view->query_selecting =
-        TRUE;
-
-
-    view->drag_start_x =
-        event->x;
-
-    view->drag_start_y =
-        event->y;
-
-
-    view->drag_end_x =
-        event->x;
-
-    view->drag_end_y =
-        event->y;
-
-
-    /*
-     * 开始新的选择，
-     * 清除之前的查询结果
-     */
-
-    free(view->query_results);
-
-    view->query_results = NULL;
-
-    view->query_result_count = 0;
-
-
-    /*
-     * 查询区域重新选择后，
-     * 原来的路线失效。
-     */
-
-    if (view->route != NULL) {
-
-        free_route(view->route);
-
-        view->route = NULL;
-    }
-
-
-    view->query_area_valid =
-        FALSE;
-
-
-    gtk_widget_queue_draw(widget);
-
-    return TRUE;
-}
-
-
-/* =========================================================
- * 鼠标移动
- * ========================================================= */
-
-static gboolean map_motion_callback(
-    GtkWidget *widget,
-    GdkEventMotion *event,
-    gpointer data
-)
-{
-    MapView *view =
-        (MapView *)data;
-
-
-    if (!view->query_selecting) {
-        return FALSE;
-    }
-
-
-    view->drag_end_x =
-        event->x;
-
-    view->drag_end_y =
-        event->y;
-
-
-    gtk_widget_queue_draw(widget);
-
-    return TRUE;
-}
-
-
-/* =========================================================
- * 鼠标释放
- * ========================================================= */
-
-static gboolean map_button_release_callback(
-    GtkWidget *widget,
-    GdkEventButton *event,
-    gpointer data
-)
-{
-    MapView *view =
-        (MapView *)data;
-
-
-    if (event->button != 1) {
-        return FALSE;
-    }
-
-
-    view->query_selecting =
-        FALSE;
-
-
-    view->drag_end_x =
-        event->x;
-
-    view->drag_end_y =
-        event->y;
-
-
-    double dx =
-        view->drag_end_x -
-        view->drag_start_x;
-
-
-    double dy =
-        view->drag_end_y -
-        view->drag_start_y;
-
-
-    double distance =
-        sqrt(
-            dx * dx +
-            dy * dy
-        );
-
-
-    /*
-     * =====================================================
-     * 点击地图
-     * =====================================================
-     */
-
-    if (distance < 5.0) {
-
-        int nearest =
-            find_nearest_node(
-                view,
-                event->x,
-                event->y
-            );
-
-
-        if (nearest >= 0) {
-
-            /*
-             * 扩容订单数组
-             */
-
-            Order *new_orders =
-                realloc(
-                    view->orders,
-                    (view->order_count + 1)
-                    * sizeof(Order)
-                );
-
-
-            if (new_orders == NULL) {
-
-                printf(
-                    "订单数组扩容失败\n"
-                );
-
-                return TRUE;
-            }
-
-
-            view->orders =
-                new_orders;
-
-
-            /*
-             * 新订单
-             */
-
-            Order *order =
-                &view->orders[
-                    view->order_count
-                ];
-
-
-            order->id =
-                view->order_count + 1;
-
-
-            order->pointid =
-                view->graph
-                ->points[nearest]
-                .id;
-
-
-            view->order_count++;
-
-
-            /*
-             * orders可能发生realloc，
-             * 所以R树中的Order*可能失效。
-             *
-             * 重新建立R树。
-             */
-
-            rebuild_rtree(view);
-
-
-            /*
-             * 清除旧路线
-             */
-
-            if (view->route != NULL) {
-
-                free_route(view->route);
-
-                view->route = NULL;
-            }
-
-
-            printf(
-                "新增订单：id=%d, pointid=%d\n",
-                order->id,
-                order->pointid
-            );
-        }
-
-
-        gtk_widget_queue_draw(widget);
-
-        return TRUE;
-    }
-
-
-    /*
-     * =====================================================
-     * 拖拽选择区域
-     * =====================================================
-     */
-
-    /*
-     * 屏幕坐标 → 地图坐标
-     */
-
-    double x1 =
-        to_map_x(
-            view,
-            view->drag_start_x
-        );
-
-
-    double y1 =
-        to_map_y(
-            view,
-            view->drag_start_y
-        );
-
-
-    double x2 =
-        to_map_x(
-            view,
-            view->drag_end_x
-        );
-
-
-    double y2 =
-        to_map_y(
-            view,
-            view->drag_end_y
-        );
-
-
-    /*
-     * 建立MBR
-     */
-
-    view->query_mbr.min_x =
-        fmin(x1, x2);
-
-
-    view->query_mbr.max_x =
-        fmax(x1, x2);
-
-
-    view->query_mbr.min_y =
-        fmin(y1, y2);
-
-
-    view->query_mbr.max_y =
-        fmax(y1, y2);
-
-
-    view->query_area_valid =
-        TRUE;
-
-
-    printf(
-        "查询区域：(%f,%f) ~ (%f,%f)\n",
-        view->query_mbr.min_x,
-        view->query_mbr.min_y,
-        view->query_mbr.max_x,
-        view->query_mbr.max_y
-    );
-
-
-    gtk_label_set_text(
-        GTK_LABEL(view->status_label),
-        "查询区域已选择，请点击「R树查询」"
-    );
-
-
-    gtk_widget_queue_draw(widget);
-
-    return TRUE;
-}
-
-
-/* =========================================================
- * R树查询
- * ========================================================= */
-
-static void query_rtree_callback(
-    GtkWidget *widget,
-    gpointer data
-)
-{
-    MapView *view =
-        (MapView *)data;
-
-
-    if (!view->query_area_valid) {
-
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "请先在地图上拖拽选择查询区域"
-        );
-
-        return;
-    }
-
-
-    if (view->rtree == NULL ||
-        view->rtree->root == NULL) {
-
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "R树为空，请先生成订单"
-        );
-
-        return;
-    }
-
-
-    /*
-     * 清除旧结果
-     */
-
-    free(view->query_results);
-
-    view->query_results = NULL;
-
-    view->query_result_count = 0;
-
-
-    if (view->order_count <= 0) {
-        return;
-    }
-
-
-    /*
-     * 为查询结果分配空间
-     */
-
-    Order **results =
-        malloc(
-            view->order_count
-            * sizeof(Order *)
-        );
-
-
-    if (results == NULL) {
-
-        printf(
-            "查询结果内存分配失败\n"
-        );
-
-        return;
-    }
-
-
-    /*
-     * R树查询
-     */
-
-    int count =
-        rtree_query(
-            view->rtree->root,
-            view->query_mbr,
-            results,
-            view->order_count
-        );
-
-
-    view->query_results =
-        results;
-
-
-    view->query_result_count =
-        count;
-
-
-    printf(
-        "\n===== R树查询 =====\n"
-    );
-
-
-    printf(
-        "找到 %d 个订单\n",
+    generate_orders(
+        view,
         count
     );
-
-
-    for (int i = 0;
-         i < count;
-         i++) {
-
-        printf(
-            "Order: id=%d, pointid=%d\n",
-            results[i]->id,
-            results[i]->pointid
-        );
-    }
-
-
-    /*
-     * 查询结果变化，
-     * 旧路线失效。
-     */
-
-    if (view->route != NULL) {
-
-        free_route(view->route);
-
-        view->route = NULL;
-    }
-
-
-    char message[128];
-
-
-    snprintf(
-        message,
-        sizeof(message),
-        "R树查询完成：找到 %d 个订单",
-        count
-    );
-
-
-    gtk_label_set_text(
-        GTK_LABEL(view->status_label),
-        message
-    );
-
-
-    gtk_widget_queue_draw(
-        view->drawing_area
-    );
 }
 
 
-/* =========================================================
- * 开始配送
- *
- * 直接调用：
- *
- * generateMatrix()
- * solve_tsp()
- *
- * 不调用make()
- * ========================================================= */
+/* ============================================================
+ * R树查询按钮
+ * ============================================================ */
 
-static void start_delivery_callback(
-    GtkWidget *widget,
-    gpointer data
-)
+static void query_button_callback(
+    GtkButton *button,
+    gpointer data)
 {
     MapView *view =
         (MapView *)data;
 
-
-    /*
-     * 必须先查询订单
-     */
-
-    if (view->query_result_count <= 0 ||
-        view->query_results == NULL) {
-
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "请先使用R树查询订单"
-        );
-
-        return;
-    }
-
-
-    printf(
-        "\n===== 开始配送 =====\n"
-    );
-
-
-    printf(
-        "配送订单数量：%d\n",
-        view->query_result_count
-    );
-
-
-    /*
-     * 释放旧路线
-     */
-
-    if (view->route != NULL) {
-
-        free_route(view->route);
-
-        view->route = NULL;
-    }
-
-
-    /*
-     * =====================================================
-     * 生成距离矩阵
-     * =====================================================
-     */
-
-    double **matrix =
-        generateMatrix(
-            view->graph,
-            view->query_results,
-            view->query_result_count,
-            view->base
-        );
-
-
-    if (matrix == NULL) {
-
-        printf(
-            "距离矩阵生成失败\n"
-        );
-
-
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "距离矩阵生成失败"
-        );
-
-
-        return;
-    }
-
-
-    printf(
-        "距离矩阵生成成功\n"
-    );
-
-
-    /*
-     * =====================================================
-     * TSP
-     * =====================================================
-     */
-
-    view->route =
-        solve_tsp(
-            matrix,
-            view->query_result_count + 1
-        );
-
-
-    if (view->route == NULL) {
-
-        printf(
-            "TSP求解失败\n"
-        );
-
-
-        freeMatrix(
-            matrix,
-            view->query_result_count + 1
-        );
-
-
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "TSP求解失败"
-        );
-
-
-        return;
-    }
-
-
-    /*
-     * 输出TSP结果
-     */
-
-    printf(
-        "\n===== TSP结果 =====\n"
-    );
-
-
-    print_route(
-        view->route
-    );
-
-
-    /*
-     * Matrix已经没有用了
-     */
-
-    freeMatrix(
-        matrix,
-        view->query_result_count + 1
-    );
-
-
-    /*
-     * route必须保留，
-     * 因为GUI还要用它画路线。
-     */
-
-    char message[128];
-
-
-    snprintf(
-        message,
-        sizeof(message),
-        "配送路线计算完成，总距离：%.2f",
-        view->route->distance
-    );
-
-
-    gtk_label_set_text(
-        GTK_LABEL(view->status_label),
-        message
-    );
-
-
-    gtk_widget_queue_draw(
-        view->drawing_area
-    );
+    do_rtree_query(view);
 }
 
 
-/* =========================================================
- * 关闭窗口
- * ========================================================= */
+/* ============================================================
+ * 开始配送按钮
+ * ============================================================ */
 
-static void destroy_callback(
-    GtkWidget *widget,
-    gpointer data
-)
+static void delivery_button_callback(
+    GtkButton *button,
+    gpointer data)
 {
     MapView *view =
         (MapView *)data;
 
-
-    /*
-     * 暂时不要调用rtree_free()
-     */
-
-    if (view->rtree != NULL) {
-
-        free(view->rtree);
-
-        view->rtree = NULL;
-    }
-
-
-    /*
-     * 查询结果只是指针数组，
-     * 不负责释放Order。
-     */
-
-    free(view->query_results);
-
-    view->query_results = NULL;
-
-
-    /*
-     * 释放路线
-     */
-
-    if (view->route != NULL) {
-
-        free_route(view->route);
-
-        view->route = NULL;
-    }
-
-
-    /*
-     * 释放订单数组
-     */
-
-    free(view->orders);
-
-    view->orders = NULL;
-
-
-    /*
-     * graph由main负责。
-     */
-
-    free(view);
-
-
-    gtk_main_quit();
+    start_delivery(view);
 }
 
 
-/* =========================================================
- * GUI入口
- * ========================================================= */
+/* ============================================================
+ * 重置视图
+ * ============================================================ */
 
-void gui_start(
-    Graph *graph
-)
+static void reset_view_callback(
+    GtkButton *button,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    GtkAllocation allocation;
+
+    gtk_widget_get_allocation(
+        view->drawing_area,
+        &allocation
+    );
+
+    init_transform(
+        view,
+        allocation.width,
+        allocation.height
+    );
+
+    gtk_widget_queue_draw(
+        view->drawing_area
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        "地图视图已重置"
+    );
+}
+
+
+/* ============================================================
+ * GUI 初始化
+ * ============================================================ */
+
+void gui_start(Graph *graph)
 {
     gtk_init(NULL, NULL);
 
-
     /*
-     * 创建MapView
+     * MapView
      */
 
     MapView *view =
-        calloc(
-            1,
-            sizeof(MapView)
-        );
+        calloc(1, sizeof(MapView));
 
-
-    if (view == NULL) {
-
-        printf(
-            "MapView内存分配失败\n"
-        );
-
+    if (view == NULL)
         return;
-    }
 
-
-    view->graph =
-        graph;
-
+    view->graph = graph;
 
     /*
-     * =====================================================
-     * 计算地图范围
-     * =====================================================
-     */
-
-    view->min_x =
-        graph->points[0].x;
-
-    view->max_x =
-        graph->points[0].x;
-
-    view->min_y =
-        graph->points[0].y;
-
-    view->max_y =
-        graph->points[0].y;
-
-
-    for (int i = 1;
-         i < graph->sum;
-         i++) {
-
-        double x =
-            graph->points[i].x;
-
-        double y =
-            graph->points[i].y;
-
-
-        if (x < view->min_x) {
-            view->min_x = x;
-        }
-
-
-        if (x > view->max_x) {
-            view->max_x = x;
-        }
-
-
-        if (y < view->min_y) {
-            view->min_y = y;
-        }
-
-
-        if (y > view->max_y) {
-            view->max_y = y;
-        }
-    }
-
-
-    /*
-     * 防止除0
-     */
-
-    if (view->max_x == view->min_x) {
-        view->max_x += 1;
-    }
-
-
-    if (view->max_y == view->min_y) {
-        view->max_y += 1;
-    }
-
-
-    /*
-     * =====================================================
-     * 配送中心
+     * 配送中心：
      *
-     * Graph内部使用0-based。
+     * Graph 使用 0-based
      *
      * 所以：
      *
-     * 地图节点ID 1
-     *        ↓
-     * Graph下标 0
-     *
-     * 如果你的配送中心不是节点1，
-     * 只修改这里。
-     * =====================================================
+     * 地图 ID 1
+     *      ↓
+     * Graph 下标 0
      */
 
     view->base = 0;
 
+    calculate_map_bounds(view);
 
     /*
-     * =====================================================
-     * 创建窗口
-     * =====================================================
+     * ========================================================
+     * Window
+     * ========================================================
      */
 
     GtkWidget *window =
@@ -2039,12 +1859,10 @@ void gui_start(
             GTK_WINDOW_TOPLEVEL
         );
 
-
     gtk_window_set_title(
         GTK_WINDOW(window),
-        "校园送"
+        "校园配送路径规划系统"
     );
-
 
     gtk_window_set_default_size(
         GTK_WINDOW(window),
@@ -2052,9 +1870,18 @@ void gui_start(
         800
     );
 
+    g_signal_connect(
+        window,
+        "destroy",
+        G_CALLBACK(gtk_main_quit),
+        NULL
+    );
+
 
     /*
+     * ========================================================
      * 主布局
+     * ========================================================
      */
 
     GtkWidget *main_box =
@@ -2063,7 +1890,6 @@ void gui_start(
             5
         );
 
-
     gtk_container_add(
         GTK_CONTAINER(window),
         main_box
@@ -2071,9 +1897,9 @@ void gui_start(
 
 
     /*
-     * =====================================================
+     * ========================================================
      * 控制栏
-     * =====================================================
+     * ========================================================
      */
 
     GtkWidget *control_box =
@@ -2081,7 +1907,6 @@ void gui_start(
             GTK_ORIENTATION_HORIZONTAL,
             5
         );
-
 
     gtk_box_pack_start(
         GTK_BOX(main_box),
@@ -2093,31 +1918,36 @@ void gui_start(
 
 
     /*
-     * 订单数量输入框
+     * 订单数量
      */
+
+    GtkWidget *label =
+        gtk_label_new(
+            "订单数量："
+        );
+
+    gtk_box_pack_start(
+        GTK_BOX(control_box),
+        label,
+        FALSE,
+        FALSE,
+        5
+    );
+
 
     view->entry =
         gtk_entry_new();
-
 
     gtk_entry_set_text(
         GTK_ENTRY(view->entry),
         "10"
     );
 
-
-    gtk_entry_set_placeholder_text(
-        GTK_ENTRY(view->entry),
-        "订单数量"
-    );
-
-
     gtk_widget_set_size_request(
         view->entry,
-        100,
+        80,
         -1
     );
-
 
     gtk_box_pack_start(
         GTK_BOX(control_box),
@@ -2129,14 +1959,13 @@ void gui_start(
 
 
     /*
-     * 生成订单按钮
+     * 生成订单
      */
 
     GtkWidget *generate_button =
         gtk_button_new_with_label(
             "生成订单"
         );
-
 
     gtk_box_pack_start(
         GTK_BOX(control_box),
@@ -2146,16 +1975,22 @@ void gui_start(
         5
     );
 
+    g_signal_connect(
+        generate_button,
+        "clicked",
+        G_CALLBACK(generate_button_callback),
+        view
+    );
+
 
     /*
-     * R树查询按钮
+     * R树查询
      */
 
     GtkWidget *query_button =
         gtk_button_new_with_label(
             "R树查询"
         );
-
 
     gtk_box_pack_start(
         GTK_BOX(control_box),
@@ -2165,16 +2000,22 @@ void gui_start(
         5
     );
 
+    g_signal_connect(
+        query_button,
+        "clicked",
+        G_CALLBACK(query_button_callback),
+        view
+    );
+
 
     /*
-     * 开始配送按钮
+     * 开始配送
      */
 
     GtkWidget *delivery_button =
         gtk_button_new_with_label(
             "开始配送"
         );
-
 
     gtk_box_pack_start(
         GTK_BOX(control_box),
@@ -2184,20 +2025,53 @@ void gui_start(
         5
     );
 
+    g_signal_connect(
+        delivery_button,
+        "clicked",
+        G_CALLBACK(delivery_button_callback),
+        view
+    );
+
 
     /*
-     * 状态信息
+     * 重置地图
      */
 
-    view->status_label =
-        gtk_label_new(
-            "左键点击地图添加订单，拖拽选择查询区域"
+    GtkWidget *reset_button =
+        gtk_button_new_with_label(
+            "重置地图"
         );
-
 
     gtk_box_pack_start(
         GTK_BOX(control_box),
-        view->status_label,
+        reset_button,
+        FALSE,
+        FALSE,
+        5
+    );
+
+    g_signal_connect(
+        reset_button,
+        "clicked",
+        G_CALLBACK(reset_view_callback),
+        view
+    );
+
+
+    /*
+     * 操作提示
+     */
+
+    GtkWidget *help =
+        gtk_label_new(
+            "Ctrl+左键拖动：框选区域    "
+            "左键拖动：移动地图    "
+            "滚轮：缩放"
+        );
+
+    gtk_box_pack_start(
+        GTK_BOX(control_box),
+        help,
         FALSE,
         FALSE,
         10
@@ -2205,63 +2079,49 @@ void gui_start(
 
 
     /*
-     * =====================================================
-     * 地图区域
-     * =====================================================
+     * ========================================================
+     * 地图 DrawingArea
+     * ========================================================
      */
 
     view->drawing_area =
         gtk_drawing_area_new();
-
 
     gtk_widget_set_hexpand(
         view->drawing_area,
         TRUE
     );
 
-
     gtk_widget_set_vexpand(
         view->drawing_area,
         TRUE
     );
-
 
     gtk_box_pack_start(
         GTK_BOX(main_box),
         view->drawing_area,
         TRUE,
         TRUE,
-        5
+        0
     );
 
 
     /*
-     * =====================================================
-     * 鼠标事件
-     * =====================================================
+     * 允许鼠标事件
      */
 
     gtk_widget_add_events(
         view->drawing_area,
         GDK_BUTTON_PRESS_MASK |
         GDK_BUTTON_RELEASE_MASK |
-        GDK_POINTER_MOTION_MASK
+        GDK_POINTER_MOTION_MASK |
+        GDK_SCROLL_MASK
     );
 
 
     /*
-     * =====================================================
-     * 信号
-     * =====================================================
+     * 绘图
      */
-
-    g_signal_connect(
-        window,
-        "destroy",
-        G_CALLBACK(destroy_callback),
-        view
-    );
-
 
     g_signal_connect(
         view->drawing_area,
@@ -2271,90 +2131,102 @@ void gui_start(
     );
 
 
+    /*
+     * 鼠标按下
+     */
+
     g_signal_connect(
         view->drawing_area,
         "button-press-event",
-        G_CALLBACK(map_button_press_callback),
+        G_CALLBACK(button_press_callback),
         view
     );
 
+
+    /*
+     * 鼠标移动
+     */
 
     g_signal_connect(
         view->drawing_area,
         "motion-notify-event",
-        G_CALLBACK(map_motion_callback),
+        G_CALLBACK(motion_callback),
         view
     );
 
+
+    /*
+     * 鼠标释放
+     */
 
     g_signal_connect(
         view->drawing_area,
         "button-release-event",
-        G_CALLBACK(map_button_release_callback),
-        view
-    );
-
-
-    g_signal_connect(
-        generate_button,
-        "clicked",
-        G_CALLBACK(generate_orders_callback),
-        view
-    );
-
-
-    g_signal_connect(
-        query_button,
-        "clicked",
-        G_CALLBACK(query_rtree_callback),
-        view
-    );
-
-
-    g_signal_connect(
-        delivery_button,
-        "clicked",
-        G_CALLBACK(start_delivery_callback),
+        G_CALLBACK(button_release_callback),
         view
     );
 
 
     /*
-     * =====================================================
-     * 初始化
-     * =====================================================
+     * 滚轮
      */
 
-    view->rtree =
-        malloc(sizeof(RTree));
-
-
-    if (view->rtree != NULL) {
-        view->rtree->root = NULL;
-    }
-
-
-    view->orders = NULL;
-
-    view->order_count = 0;
-
-    view->query_results = NULL;
-
-    view->query_result_count = 0;
-
-    view->query_selecting = FALSE;
-
-    view->query_area_valid = FALSE;
-
-    view->route = NULL;
+    g_signal_connect(
+        view->drawing_area,
+        "scroll-event",
+        G_CALLBACK(scroll_callback),
+        view
+    );
 
 
     /*
-     * 显示窗口
+     * ========================================================
+     * 状态栏
+     * ========================================================
+     */
+
+    view->status_label =
+        gtk_label_new(
+            "Ctrl+左键拖动地图选择R树查询区域"
+        );
+
+    gtk_box_pack_start(
+        GTK_BOX(main_box),
+        view->status_label,
+        FALSE,
+        FALSE,
+        5
+    );
+
+
+    /*
+     * ========================================================
+     * 显示
+     * ========================================================
      */
 
     gtk_widget_show_all(window);
 
 
+    /*
+     * DrawingArea 现在已经有实际大小，
+     * 初始化地图缩放。
+     */
+
+    GtkAllocation allocation;
+
+    gtk_widget_get_allocation(
+        view->drawing_area,
+        &allocation
+    );
+
+    init_transform(
+        view,
+        allocation.width,
+        allocation.height
+    );
+
+
     gtk_main();
 }
+
