@@ -69,6 +69,7 @@ void remove_entry(RTreeNode *node, int index);
  static RTreeNode *insert_recursive(RTreeNode *node, RTreeEntry entry);
  void rtree_insert(RTree *tree,const Order *order,const Graph *graph);
  int rtree_query(RTreeNode *node,MBR query_mbr,Order **results,int max_results);
+ void rtree_free(RTree *tree);
 #endif              
 
 

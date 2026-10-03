@@ -862,3 +862,27 @@ int rtree_query(RTreeNode *node,MBR query_mbr,Order **results,int max_results)
 }
 
 //如果是叶子节点  去找订单   如果不是就去递归查询
+
+static void free_node(RTreeNode *node)
+{
+    if (node == NULL)
+        return;
+
+    if (!node->is_leaf) {
+        for (int i = 0; i < node->count; i++) {
+            RTreeNode *child = (RTreeNode *)node->entries[i].child;
+            free_node(child);
+        }
+    }
+
+    free(node);
+}
+
+void rtree_free(RTree *tree)
+{
+    if (tree == NULL)
+        return;
+
+    free_node(tree->root);
+    free(tree);
+}

@@ -7,50 +7,37 @@
 #include "../include/gui.h"
 #include "../include/graph.h"
 #include "../include/order.h"
+#include "../include/rtree.h"
 
 
 typedef struct {
-
     Graph *graph;
 
-    // 地图坐标范围
     double min_x;
     double max_x;
     double min_y;
     double max_y;
 
-    // 当前订单
     Order *orders;
     int order_count;
 
-    // 地图绘图区
+    RTree *rtree;
+
     GtkWidget *drawing_area;
-
-    // 订单数量输入框
     GtkWidget *entry;
-
-    // 状态文字
     GtkWidget *status_label;
-
 } MapView;
 
 
-/*
- * ==========================
- * 计算地图坐标范围
- * ==========================
- */
+/* =========================================================
+ * 1. 计算地图经纬度范围
+ * ========================================================= */
 static void calculate_bounds(MapView *view)
 {
     Graph *graph = view->graph;
 
-    if (graph == NULL || graph->sum <= 0) {
-        return;
-    }
-
     view->min_x = graph->points[0].x;
     view->max_x = graph->points[0].x;
-
     view->min_y = graph->points[0].y;
     view->max_y = graph->points[0].y;
 
@@ -71,14 +58,13 @@ static void calculate_bounds(MapView *view)
 }
 
 
-/*
- * ==========================
- * 地图 X → 屏幕 X
- * ==========================
- */
-static double to_screen_x(MapView *view,
-                          double x,
-                          double width)
+/* =========================================================
+ * 2. 地图坐标 → 屏幕坐标
+ * ========================================================= */
+static double to_screen_x(
+    MapView *view,
+    double x,
+    double width)
 {
     double range_x = view->max_x - view->min_x;
 
@@ -89,14 +75,10 @@ static double to_screen_x(MapView *view,
 }
 
 
-/*
- * ==========================
- * 地图 Y → 屏幕 Y
- * ==========================
- */
-static double to_screen_y(MapView *view,
-                          double y,
-                          double height)
+static double to_screen_y(
+    MapView *view,
+    double y,
+    double height)
 {
     double range_y = view->max_y - view->min_y;
 
@@ -104,22 +86,22 @@ static double to_screen_y(MapView *view,
         return height / 2.0;
 
     /*
-     * Cairo 的 Y 轴向下，
-     * 所以这里把 Y 轴翻转。
+     * Cairo 的 y 轴向下，
+     * 地图的 y 轴向上，
+     * 所以这里需要反过来。
      */
     return height -
            (y - view->min_y) / range_y * height;
 }
 
 
-/*
- * ==========================
- * 屏幕 X → 地图 X
- * ==========================
- */
-static double to_map_x(MapView *view,
-                        double screen_x,
-                        double width)
+/* =========================================================
+ * 3. 屏幕坐标 → 地图坐标
+ * ========================================================= */
+static double to_map_x(
+    MapView *view,
+    double screen_x,
+    double width)
 {
     double range_x = view->max_x - view->min_x;
 
@@ -131,189 +113,55 @@ static double to_map_x(MapView *view,
 }
 
 
-/*
- * ==========================
- * 屏幕 Y → 地图 Y
- * ==========================
- */
-static double to_map_y(MapView *view,
-                        double screen_y,
-                        double height)
+static double to_map_y(
+    MapView *view,
+    double screen_y,
+    double height)
 {
     double range_y = view->max_y - view->min_y;
 
     if (height == 0)
         return view->min_y;
 
-    /*
-     * 这里和 to_screen_y() 相反，
-     * 把屏幕坐标还原成地图坐标。
-     */
     return view->min_y +
            (height - screen_y) / height * range_y;
 }
 
 
-/*
- * ==========================
- * 绘制地图
- * ==========================
- */
-static gboolean draw_map(GtkWidget *widget,
-                         cairo_t *cr,
-                         gpointer data)
-{
-    MapView *view = (MapView *)data;
-
-    Graph *graph = view->graph;
-
-    double width =
-        gtk_widget_get_allocated_width(widget);
-
-    double height =
-        gtk_widget_get_allocated_height(widget);
-
-
-    /*
-     * ==========================
-     * 1. 绘制道路
-     * ==========================
-     */
-
-    for (int i = 0; i < graph->sum; i++) {
-
-        Point *from = &graph->points[i];
-
-        double x1 =
-            to_screen_x(view, from->x, width);
-
-        double y1 =
-            to_screen_y(view, from->y, height);
-
-        Edge *edge = graph->adj[i];
-
-        while (edge != NULL) {
-
-            /*
-             * edge->to 是 0-based
-             */
-            Point *to =
-                &graph->points[edge->to];
-
-            double x2 =
-                to_screen_x(view, to->x, width);
-
-            double y2 =
-                to_screen_y(view, to->y, height);
-
-            cairo_move_to(cr, x1, y1);
-            cairo_line_to(cr, x2, y2);
-            cairo_stroke(cr);
-
-            edge = edge->next;
-        }
-    }
-
-
-    /*
-     * ==========================
-     * 2. 绘制订单
-     * ==========================
-     */
-
-    for (int i = 0; i < view->order_count; i++) {
-
-        Order *order = &view->orders[i];
-
-        /*
-         * Order.pointid 是 1-based
-         *
-         * Graph.points[] 是 0-based
-         */
-        int point_index =
-            order->pointid - 1;
-
-        /*
-         * 防止数组越界
-         */
-        if (point_index < 0 ||
-            point_index >= graph->sum) {
-
-            continue;
-        }
-
-        Point *point =
-            &graph->points[point_index];
-
-        double x =
-            to_screen_x(view, point->x, width);
-
-        double y =
-            to_screen_y(view, point->y, height);
-
-
-        /*
-         * 画订单圆点
-         */
-        cairo_arc(
-            cr,
-            x,
-            y,
-            5.0,
-            0,
-            2 * M_PI
-        );
-
-        cairo_fill(cr);
-    }
-
-
-    return FALSE;
-}
-
-
-/*
- * ==========================
- * 找距离鼠标最近的节点
- * ==========================
- */
-static int find_nearest_node(MapView *view,
-                             double mouse_x,
-                             double mouse_y)
+/* =========================================================
+ * 4. 根据鼠标位置寻找最近地图节点
+ *
+ * 返回：
+ *   0 ~ graph->sum-1
+ *
+ * 这是 Graph.points[] 的数组下标，
+ * 不是 Order.pointid。
+ * ========================================================= */
+static int find_nearest_node(
+    MapView *view,
+    double mouse_x,
+    double mouse_y)
 {
     Graph *graph = view->graph;
 
     double width =
         gtk_widget_get_allocated_width(
-            view->drawing_area
-        );
+            view->drawing_area);
 
     double height =
         gtk_widget_get_allocated_height(
-            view->drawing_area
-        );
+            view->drawing_area);
 
-
-    /*
-     * 鼠标的屏幕坐标
-     * ↓
-     * 转换成地图坐标
-     */
     double map_x =
         to_map_x(view, mouse_x, width);
 
     double map_y =
         to_map_y(view, mouse_y, height);
 
-
     int nearest = -1;
 
-    double min_distance = 1e100;
+    double min_distance = 0;
 
-
-    /*
-     * 遍历所有地图节点
-     */
     for (int i = 0; i < graph->sum; i++) {
 
         double dx =
@@ -325,172 +173,257 @@ static int find_nearest_node(MapView *view,
         double distance =
             dx * dx + dy * dy;
 
-
-        if (distance < min_distance) {
-
-            min_distance = distance;
+        if (nearest == -1 ||
+            distance < min_distance)
+        {
             nearest = i;
+            min_distance = distance;
         }
     }
-
 
     return nearest;
 }
 
 
-/*
- * ==========================
- * 鼠标点击地图
- * ==========================
- */
-static gboolean map_button_press_callback(
-    GtkWidget *widget,
-    GdkEventButton *event,
-    gpointer data)
+/* =========================================================
+ * 5. 重新建立 R-tree
+ *
+ * 为什么需要这个函数？
+ *
+ * 因为 orders 是一块动态数组。
+ *
+ * realloc() 之后：
+ *
+ *     原来的 Order * 地址
+ *
+ * 可能发生改变。
+ *
+ * 而你的 R-tree 中：
+ *
+ *     entry->child
+ *
+ * 保存的就是 Order *。
+ *
+ * 所以如果 orders 地址改变，
+ * 原来的 R-tree 就会保存悬空指针。
+ *
+ * 最简单可靠的处理方式：
+ *
+ *     订单数组变化
+ *          ↓
+ *     重新建立 R-tree
+ * ========================================================= */
+static void rebuild_rtree(MapView *view)
 {
-    printf("鼠标点击：x=%f y=%f\n", event->x, event->y);
-    MapView *view = (MapView *)data;
+    if (view->rtree == NULL) {
+        view->rtree =
+            malloc(sizeof(RTree));
 
+        if (view->rtree == NULL) {
+            perror("malloc failed");
+            return;
+        }
 
-    /*
-     * 只处理鼠标左键
-     */
-    if (event->button != 1) {
-        return FALSE;
+        view->rtree->root = NULL;
     }
 
-
     /*
-     * 找最近的 Graph 节点
-     */
-    int node_index =
-        find_nearest_node(
-            view,
-            event->x,
-            event->y
-        );
-
-
-    if (node_index < 0) {
-        return FALSE;
-    }
-
-
-    /*
-     * ==========================
-     * 增加一个 Order
-     * ==========================
-     */
-
-    Order *new_orders =
-        realloc(
-            view->orders,
-            (view->order_count + 1)
-            * sizeof(Order)
-        );
-
-
-    if (new_orders == NULL) {
-
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "创建订单失败：内存不足"
-        );
-
-        return FALSE;
-    }
-
-
-    view->orders = new_orders;
-
-
-    /*
-     * 新订单编号
-     */
-    int new_id =
-        view->order_count + 1;
-
-
-    /*
-     * Order.pointid 是 1-based
+     * 释放旧树的节点。
      *
-     * node_index 是 0-based
-     *
-     * 所以 +1
+     * 注意：
+     * rtree_free() 只释放 R-tree 节点，
+     * 不释放 Order。
      */
-    view->orders[view->order_count].id =
-        new_id;
-
-    view->orders[view->order_count].pointid =
-        node_index + 1;
-
+    //rtree_free(view->rtree);
 
     /*
-     * 订单数量 +1
+     * 创建新的叶子根节点
      */
-    view->order_count++;
+    view->rtree->root =
+        create_node(1);
 
+    if (view->rtree->root == NULL) {
+        printf("R-tree 根节点创建失败\n");
+        return;
+    }
 
     /*
-     * 更新状态
+     * 把当前所有订单重新插入
      */
-    char status[100];
-
-    snprintf(
-        status,
-        sizeof(status),
-        "当前订单：%d",
-        view->order_count
-    );
-
-    gtk_label_set_text(
-        GTK_LABEL(view->status_label),
-        status
-    );
-
-
-    /*
-     * 重新绘制地图
-     */
-    gtk_widget_queue_draw(
-        view->drawing_area
-    );
-
-
-    return TRUE;
+    for (int i = 0;
+         i < view->order_count;
+         i++)
+    {
+        rtree_insert(
+            view->rtree,
+            &view->orders[i],
+            view->graph
+        );
+    }
 }
 
 
-/*
- * ==========================
- * 点击「生成订单」
- * ==========================
- */
+/* =========================================================
+ * 6. 绘制地图
+ * ========================================================= */
+static gboolean draw_map(
+    GtkWidget *widget,
+    cairo_t *cr,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    Graph *graph =
+        view->graph;
+
+    double width =
+        gtk_widget_get_allocated_width(widget);
+
+    double height =
+        gtk_widget_get_allocated_height(widget);
+
+
+    /* -------------------------
+     * 绘制道路
+     * ------------------------- */
+    for (int i = 0;
+         i < graph->sum;
+         i++)
+    {
+        Point *from =
+            &graph->points[i];
+
+        double x1 =
+            to_screen_x(
+                view,
+                from->x,
+                width
+            );
+
+        double y1 =
+            to_screen_y(
+                view,
+                from->y,
+                height
+            );
+
+        Edge *edge =
+            graph->adj[i];
+
+        while (edge != NULL) {
+
+            Point *to =
+                &graph->points[edge->to];
+
+            double x2 =
+                to_screen_x(
+                    view,
+                    to->x,
+                    width
+                );
+
+            double y2 =
+                to_screen_y(
+                    view,
+                    to->y,
+                    height
+                );
+
+            cairo_move_to(
+                cr,
+                x1,
+                y1
+            );
+
+            cairo_line_to(
+                cr,
+                x2,
+                y2
+            );
+
+            cairo_stroke(cr);
+
+            edge = edge->next;
+        }
+    }
+
+
+    /* -------------------------
+     * 绘制订单
+     * ------------------------- */
+    for (int i = 0;
+         i < view->order_count;
+         i++)
+    {
+        Order *order =
+            &view->orders[i];
+
+        /*
+         * Order.pointid 是 1-based
+         *
+         * Graph.points[] 是 0-based
+         */
+        int point_index =
+            order->pointid - 1;
+
+        if (point_index < 0 ||
+            point_index >= graph->sum)
+        {
+            continue;
+        }
+
+        Point *point =
+            &graph->points[point_index];
+
+        double x =
+            to_screen_x(
+                view,
+                point->x,
+                width
+            );
+
+        double y =
+            to_screen_y(
+                view,
+                point->y,
+                height
+            );
+
+        cairo_arc(
+            cr,
+            x,
+            y,
+            5.0,
+            0,
+            2 * 3.141592653589793
+        );
+
+        cairo_fill(cr);
+    }
+
+    return FALSE;
+}
+
+
+/* =========================================================
+ * 7. 随机生成订单
+ * ========================================================= */
 static void generate_orders_callback(
     GtkWidget *button,
     gpointer data)
 {
-    MapView *view = (MapView *)data;
+    MapView *view =
+        (MapView *)data;
 
-
-    /*
-     * 从输入框获取字符串
-     */
     const char *text =
         gtk_entry_get_text(
             GTK_ENTRY(view->entry)
         );
 
+    int count =
+        atoi(text);
 
-    /*
-     * 转换成整数
-     */
-    int count = atoi(text);
-
-
-    /*
-     * 检查订单数量
-     */
     if (count <= 0) {
 
         gtk_label_set_text(
@@ -503,7 +436,7 @@ static void generate_orders_callback(
 
 
     /*
-     * 释放上一批订单
+     * 释放旧订单
      */
     free_orders(view->orders);
 
@@ -512,15 +445,14 @@ static void generate_orders_callback(
 
 
     /*
-     * 调用你原来的订单生成函数
+     * 生成新订单
      */
     view->orders =
-        generate(view->graph, count);
+        generate(
+            view->graph,
+            count
+        );
 
-
-    /*
-     * 判断生成是否成功
-     */
     if (view->orders == NULL) {
 
         gtk_label_set_text(
@@ -531,16 +463,17 @@ static void generate_orders_callback(
         return;
     }
 
-
-    /*
-     * 保存订单数量
-     */
-    view->order_count = count;
+    view->order_count =
+        count;
 
 
     /*
-     * 更新状态文字
+     * 根据新的订单数组
+     * 重新建立 R-tree
      */
+    rebuild_rtree(view);
+
+
     char status[100];
 
     snprintf(
@@ -556,50 +489,325 @@ static void generate_orders_callback(
     );
 
 
-    /*
-     * 重新绘制地图
-     */
     gtk_widget_queue_draw(
         view->drawing_area
     );
 }
 
 
-/*
- * ==========================
- * 窗口关闭
- * ==========================
- */
+/* =========================================================
+ * 8. 鼠标点击地图 → 创建订单
+ * ========================================================= */
+static gboolean map_button_press_callback(
+    GtkWidget *widget,
+    GdkEventButton *event,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+
+    /*
+     * 只处理鼠标左键
+     */
+    if (event->button != 1) {
+        return FALSE;
+    }
+
+
+    printf(
+        "鼠标点击：x=%f y=%f\n",
+        event->x,
+        event->y
+    );
+
+
+    /*
+     * 找到最近节点
+     */
+    int node_index =
+        find_nearest_node(
+            view,
+            event->x,
+            event->y
+        );
+
+    if (node_index < 0) {
+        return FALSE;
+    }
+
+
+    printf(
+        "最近节点：%d\n",
+        node_index
+    );
+
+
+    /*
+     * 增加一个 Order
+     *
+     * 注意：
+     * realloc 之后 orders 的地址
+     * 可能发生变化。
+     */
+    Order *new_orders =
+        realloc(
+            view->orders,
+            (view->order_count + 1)
+            * sizeof(Order)
+        );
+
+    if (new_orders == NULL) {
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "创建订单失败"
+        );
+
+        return FALSE;
+    }
+
+    view->orders =
+        new_orders;
+
+
+    /*
+     * 创建新订单
+     *
+     * Order.id 从 1 开始
+     */
+    int index =
+        view->order_count;
+
+    view->orders[index].id =
+        index + 1;
+
+    /*
+     * node_index 是 0-based
+     *
+     * Order.pointid 是 1-based
+     *
+     * 所以 +1
+     */
+    view->orders[index].pointid =
+        node_index + 1;
+
+
+    view->order_count++;
+
+
+    /*
+     * 订单数组发生了 realloc，
+     * 所以必须重新建立 R-tree。
+     *
+     * 不能直接向旧 R-tree 插入，
+     * 因为旧 R-tree 中的 Order *
+     * 可能已经失效。
+     */
+    rebuild_rtree(view);
+
+
+    printf(
+        "创建订单：id=%d pointid=%d\n",
+        view->orders[index].id,
+        view->orders[index].pointid
+    );
+
+
+    char status[100];
+
+    snprintf(
+        status,
+        sizeof(status),
+        "当前订单：%d",
+        view->order_count
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        status
+    );
+
+
+    gtk_widget_queue_draw(
+        view->drawing_area
+    );
+
+    return TRUE;
+}
+
+
+/* =========================================================
+ * 9. R-tree 查询
+ *
+ * 当前先查询整个地图。
+ *
+ * 这一步主要是验证：
+ *
+ * GUI
+ *   ↓
+ * Order
+ *   ↓
+ * R-tree
+ *   ↓
+ * query
+ *
+ * 后面再把它改成鼠标框选区域。
+ * ========================================================= */
+static void query_rtree_callback(
+    GtkWidget *button,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    if (view->rtree == NULL ||
+        view->rtree->root == NULL)
+    {
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "R-tree 为空"
+        );
+
+        return;
+    }
+
+
+    /*
+     * 查询整个地图范围
+     */
+    MBR query;
+
+    query.min_x =
+        view->min_x;
+
+    query.min_y =
+        view->min_y;
+
+    query.max_x =
+        view->max_x;
+
+    query.max_y =
+        view->max_y;
+
+
+    /*
+     * 最多保存 2000 个结果。
+     *
+     * 你的项目目前订单数量远低于这个值，
+     * 所以足够。
+     */
+    Order *results[2000];
+
+
+    int count =
+        rtree_query(
+            view->rtree->root,
+            query,
+            results,
+            2000
+        );
+
+
+    printf("\n");
+    printf("============================\n");
+    printf("R-tree 查询\n");
+    printf("============================\n");
+
+    printf(
+        "查询区域：\n"
+        "(%f, %f) ~ (%f, %f)\n",
+        query.min_x,
+        query.min_y,
+        query.max_x,
+        query.max_y
+    );
+
+    printf(
+        "找到 %d 个订单\n",
+        count
+    );
+
+
+    for (int i = 0;
+         i < count;
+         i++)
+    {
+        printf(
+            "Order: id=%d, pointid=%d\n",
+            results[i]->id,
+            results[i]->pointid
+        );
+    }
+
+    printf("============================\n");
+    printf("\n");
+
+
+    char status[100];
+
+    snprintf(
+        status,
+        sizeof(status),
+        "R-tree 查询到 %d 个订单",
+        count
+    );
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        status
+    );
+}
+
+
+/* =========================================================
+ * 10. 窗口关闭
+ * ========================================================= */
 static void destroy_callback(
     GtkWidget *widget,
     gpointer data)
 {
-    MapView *view = (MapView *)data;
+    MapView *view =
+        (MapView *)data;
 
 
     /*
-     * 释放订单
+     * 先释放 R-tree
+     *
+     * R-tree 中的 child 指向 Order，
+     * 所以这里不能释放 Order。
      */
-    free_orders(view->orders);
+    if (view->rtree != NULL) {
+
+        //rtree_free(
+        //    view->rtree
+        //);
+
+        free(view->rtree);
+
+        view->rtree = NULL;
+    }
 
 
     /*
-     * 退出 GTK
+     * 再释放订单数组
      */
+    free_orders(
+        view->orders
+    );
+
+    view->orders = NULL;
+
+
     gtk_main_quit();
 }
 
 
-/*
- * ==========================
- * 启动 GUI
- * ==========================
- */
+/* =========================================================
+ * 11. GUI 主函数
+ * ========================================================= */
 void gui_start(Graph *graph)
 {
-    /*
-     * GUI 状态
-     */
     MapView view;
 
     view.graph = graph;
@@ -607,29 +815,32 @@ void gui_start(Graph *graph)
     view.orders = NULL;
     view.order_count = 0;
 
+    view.rtree =
+        malloc(sizeof(RTree));
+
+    if (view.rtree == NULL) {
+
+        perror("malloc failed");
+
+        return;
+    }
+
+    view.rtree->root = NULL;
+
     view.drawing_area = NULL;
     view.entry = NULL;
     view.status_label = NULL;
 
 
-    /*
-     * 计算地图范围
-     */
     calculate_bounds(&view);
 
 
-    /*
-     * 初始化 GTK
-     */
     gtk_init(NULL, NULL);
 
 
-    /*
-     * ==========================
-     * 创建窗口
-     * ==========================
-     */
-
+    /* -------------------------
+     * 主窗口
+     * ------------------------- */
     GtkWidget *window =
         gtk_window_new(
             GTK_WINDOW_TOPLEVEL
@@ -647,12 +858,9 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
-     * ==========================
-     * 整体布局
-     * ==========================
-     */
-
+    /* -------------------------
+     * 主布局
+     * ------------------------- */
     GtkWidget *main_box =
         gtk_box_new(
             GTK_ORIENTATION_VERTICAL,
@@ -665,12 +873,9 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
-     * ==========================
-     * 顶部控制栏
-     * ==========================
-     */
-
+    /* -------------------------
+     * 控制栏
+     * ------------------------- */
     GtkWidget *control_box =
         gtk_box_new(
             GTK_ORIENTATION_HORIZONTAL,
@@ -686,9 +891,7 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
-     * 订单数量文字
-     */
+    /* 订单数量 */
     GtkWidget *count_label =
         gtk_label_new(
             "订单数量："
@@ -703,9 +906,7 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
-     * 输入框
-     */
+    /* 输入框 */
     view.entry =
         gtk_entry_new();
 
@@ -728,9 +929,7 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
-     * 生成订单按钮
-     */
+    /* 生成订单按钮 */
     GtkWidget *generate_button =
         gtk_button_new_with_label(
             "生成订单"
@@ -746,8 +945,23 @@ void gui_start(Graph *graph)
 
 
     /*
-     * 状态文字
+     * R-tree 查询按钮
      */
+    GtkWidget *query_button =
+        gtk_button_new_with_label(
+            "R树查询"
+        );
+
+    gtk_box_pack_start(
+        GTK_BOX(control_box),
+        query_button,
+        FALSE,
+        FALSE,
+        5
+    );
+
+
+    /* 状态 */
     view.status_label =
         gtk_label_new(
             "当前订单：0"
@@ -762,14 +976,21 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
-     * ==========================
+    /* -------------------------
      * 地图绘图区
-     * ==========================
-     */
-
+     * ------------------------- */
     view.drawing_area =
         gtk_drawing_area_new();
+
+
+    /*
+     * 允许接收鼠标点击事件
+     */
+    gtk_widget_add_events(
+        view.drawing_area,
+        GDK_BUTTON_PRESS_MASK
+    );
+
 
     gtk_box_pack_start(
         GTK_BOX(main_box),
@@ -780,24 +1001,13 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
-     * ==========================
-     * 开启鼠标事件
-     * ==========================
-     */
-
-    gtk_widget_add_events(
-        view.drawing_area,
-        GDK_BUTTON_PRESS_MASK
-    );
-
+    /* -------------------------
+     * 信号
+     * ------------------------- */
 
     /*
-     * ==========================
-     * 连接信号
-     * ==========================
+     * 绘制地图
      */
-
     g_signal_connect(
         view.drawing_area,
         "draw",
@@ -806,6 +1016,9 @@ void gui_start(Graph *graph)
     );
 
 
+    /*
+     * 点击地图
+     */
     g_signal_connect(
         view.drawing_area,
         "button-press-event",
@@ -814,6 +1027,9 @@ void gui_start(Graph *graph)
     );
 
 
+    /*
+     * 生成订单
+     */
     g_signal_connect(
         generate_button,
         "clicked",
@@ -822,6 +1038,20 @@ void gui_start(Graph *graph)
     );
 
 
+    /*
+     * R-tree 查询
+     */
+    g_signal_connect(
+        query_button,
+        "clicked",
+        G_CALLBACK(query_rtree_callback),
+        &view
+    );
+
+
+    /*
+     * 关闭窗口
+     */
     g_signal_connect(
         window,
         "destroy",
@@ -830,14 +1060,11 @@ void gui_start(Graph *graph)
     );
 
 
-    /*
+    /* -------------------------
      * 显示窗口
-     */
+     * ------------------------- */
     gtk_widget_show_all(window);
 
-
-    /*
-     * GTK 主循环
-     */
     gtk_main();
 }
+
