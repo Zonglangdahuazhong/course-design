@@ -987,6 +987,8 @@ static void draw_delivery_route(
          i < view->route->count - 1;
          i++) {
 
+        cairo_new_path(cr);
+
         int route_a =
             view->route->route[i];
 
@@ -1162,6 +1164,8 @@ static void draw_delivery_order(
 
         if (i == 0) {
 
+            cairo_new_path(cr);
+
             cairo_move_to(
                 cr,
                 x + 10,
@@ -1201,6 +1205,8 @@ static void draw_delivery_order(
          * 画一个小圆圈
          */
 
+        cairo_new_path(cr);
+
         cairo_arc(
             cr,
             x,
@@ -1215,6 +1221,8 @@ static void draw_delivery_order(
         /*
          * 数字
          */
+
+        cairo_new_path(cr);
 
         cairo_move_to(
             cr,
@@ -2253,6 +2261,5 @@ void gui_start(Graph *graph)
 
     gtk_main();
 }
-
 
 
