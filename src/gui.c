@@ -1218,10 +1218,6 @@ static void draw_delivery_order(
 
         cairo_stroke(cr);
 
-        /*
-         * 数字
-         */
-
         cairo_new_path(cr);
 
         cairo_move_to(
@@ -1230,9 +1226,46 @@ static void draw_delivery_order(
             y + 5
         );
 
+        cairo_set_font_size(
+            cr,
+            12
+        );
+
         cairo_show_text(
             cr,
             text
+        );
+
+        /*
+         * 在订单旁边显示配送顺序。
+         * 圆圈中的数字保留用于快速定位，旁边的文字用于明确含义。
+         */
+
+        char order_text[32];
+
+        snprintf(
+            order_text,
+            sizeof(order_text),
+            "配送%d",
+            i
+        );
+
+        cairo_new_path(cr);
+
+        cairo_move_to(
+            cr,
+            x + 13,
+            y + 5
+        );
+
+        cairo_set_font_size(
+            cr,
+            12
+        );
+
+        cairo_show_text(
+            cr,
+            order_text
         );
     }
 }
@@ -2261,5 +2294,3 @@ void gui_start(Graph *graph)
 
     gtk_main();
 }
-
-
