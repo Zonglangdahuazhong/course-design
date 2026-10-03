@@ -18,7 +18,7 @@ int make(int count,int local,double x1,double y1,double x2,double y2){
 
 srand(time(NULL));
 
-Graph *graph = mapload("data//map/testMatrx.txt");
+Graph *graph = mapload("data//map/hit.txt");
     if (graph == NULL) {
         printf("地图加载失败\n");
         return 1;
