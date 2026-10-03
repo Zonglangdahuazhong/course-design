@@ -26,6 +26,43 @@ typedef struct {
     GtkWidget *drawing_area;
     GtkWidget *entry;
     GtkWidget *status_label;
+
+    /*
+     * R-tree 查询区域
+     *
+     * query_selecting:
+     *     是否正在拖拽选择区域
+     *
+     * query_area_valid:
+     *     是否已经存在一个有效查询区域
+     *
+     * drag_start_x/y:
+     *     鼠标按下时的屏幕坐标
+     *
+     * drag_end_x/y:
+     *     鼠标当前/松开时的屏幕坐标
+     *
+     * query_mbr:
+     *     最终转换得到的地图坐标区域
+     */
+    gboolean query_selecting;
+    gboolean query_area_valid;
+
+    double drag_start_x;
+    double drag_start_y;
+
+    double drag_end_x;
+    double drag_end_y;
+
+    MBR query_mbr;
+
+    /*
+     * 保存 R-tree 最近一次查询得到的订单。
+     *
+     * 这里只保存指针，不拥有 Order 的内存。
+     */
+    Order **query_results;
+    int query_result_count;
 } MapView;
 
 
@@ -130,12 +167,6 @@ static double to_map_y(
 
 /* =========================================================
  * 4. 根据鼠标位置寻找最近地图节点
- *
- * 返回：
- *   0 ~ graph->sum-1
- *
- * 这是 Graph.points[] 的数组下标，
- * 不是 Order.pointid。
  * ========================================================= */
 static int find_nearest_node(
     MapView *view,
@@ -187,35 +218,11 @@ static int find_nearest_node(
 
 /* =========================================================
  * 5. 重新建立 R-tree
- *
- * 为什么需要这个函数？
- *
- * 因为 orders 是一块动态数组。
- *
- * realloc() 之后：
- *
- *     原来的 Order * 地址
- *
- * 可能发生改变。
- *
- * 而你的 R-tree 中：
- *
- *     entry->child
- *
- * 保存的就是 Order *。
- *
- * 所以如果 orders 地址改变，
- * 原来的 R-tree 就会保存悬空指针。
- *
- * 最简单可靠的处理方式：
- *
- *     订单数组变化
- *          ↓
- *     重新建立 R-tree
  * ========================================================= */
 static void rebuild_rtree(MapView *view)
 {
     if (view->rtree == NULL) {
+
         view->rtree =
             malloc(sizeof(RTree));
 
@@ -228,16 +235,12 @@ static void rebuild_rtree(MapView *view)
     }
 
     /*
-     * 释放旧树的节点。
+     * 暂时不调用 rtree_free()。
      *
-     * 注意：
-     * rtree_free() 只释放 R-tree 节点，
-     * 不释放 Order。
-     */
-    //rtree_free(view->rtree);
-
-    /*
-     * 创建新的叶子根节点
+     * 因为目前你的 R-tree 没有可靠的释放函数，
+     * 而且之前加入 rtree_free() 后出现了堆损坏。
+     *
+     * 这里直接创建新的根节点。
      */
     view->rtree->root =
         create_node(1);
@@ -248,7 +251,7 @@ static void rebuild_rtree(MapView *view)
     }
 
     /*
-     * 把当前所有订单重新插入
+     * 把当前所有订单重新插入。
      */
     for (int i = 0;
          i < view->order_count;
@@ -264,7 +267,26 @@ static void rebuild_rtree(MapView *view)
 
 
 /* =========================================================
- * 6. 绘制地图
+ * 6. 判断一个 Order 是否在查询结果中
+ * ========================================================= */
+static gboolean is_query_result(
+    MapView *view,
+    Order *order)
+{
+    for (int i = 0;
+         i < view->query_result_count;
+         i++)
+    {
+        if (view->query_results[i] == order)
+            return TRUE;
+    }
+
+    return FALSE;
+}
+
+
+/* =========================================================
+ * 7. 绘制地图
  * ========================================================= */
 static gboolean draw_map(
     GtkWidget *widget,
@@ -359,11 +381,6 @@ static gboolean draw_map(
         Order *order =
             &view->orders[i];
 
-        /*
-         * Order.pointid 是 1-based
-         *
-         * Graph.points[] 是 0-based
-         */
         int point_index =
             order->pointid - 1;
 
@@ -390,24 +407,92 @@ static gboolean draw_map(
                 height
             );
 
-        cairo_arc(
+
+        /*
+         * 如果这个订单在 R-tree
+         * 查询结果中，就高亮。
+         */
+        if (is_query_result(view, order)) {
+
+            cairo_arc(
+                cr,
+                x,
+                y,
+                8.0,
+                0,
+                2 * 3.141592653589793
+            );
+
+            cairo_fill(cr);
+
+        } else {
+
+            cairo_arc(
+                cr,
+                x,
+                y,
+                5.0,
+                0,
+                2 * 3.141592653589793
+            );
+
+            cairo_fill(cr);
+        }
+    }
+
+
+    /* =====================================================
+     * 绘制 R-tree 查询矩形
+     * ===================================================== */
+    if (view->query_selecting ||
+        view->query_area_valid)
+    {
+        double x1 =
+            view->drag_start_x;
+
+        double y1 =
+            view->drag_start_y;
+
+        double x2 =
+            view->drag_end_x;
+
+        double y2 =
+            view->drag_end_y;
+
+        double rect_x =
+            MIN(x1, x2);
+
+        double rect_y =
+            MIN(y1, y2);
+
+        double rect_width =
+            fabs(x2 - x1);
+
+        double rect_height =
+            fabs(y2 - y1);
+
+
+        /*
+         * 画矩形边框
+         */
+        cairo_rectangle(
             cr,
-            x,
-            y,
-            5.0,
-            0,
-            2 * 3.141592653589793
+            rect_x,
+            rect_y,
+            rect_width,
+            rect_height
         );
 
-        cairo_fill(cr);
+        cairo_stroke(cr);
     }
+
 
     return FALSE;
 }
 
 
 /* =========================================================
- * 7. 随机生成订单
+ * 8. 随机生成订单
  * ========================================================= */
 static void generate_orders_callback(
     GtkWidget *button,
@@ -442,6 +527,15 @@ static void generate_orders_callback(
 
     view->orders = NULL;
     view->order_count = 0;
+
+
+    /*
+     * 清除旧的查询结果
+     */
+    free(view->query_results);
+
+    view->query_results = NULL;
+    view->query_result_count = 0;
 
 
     /*
@@ -496,7 +590,13 @@ static void generate_orders_callback(
 
 
 /* =========================================================
- * 8. 鼠标点击地图 → 创建订单
+ * 9. 鼠标按下
+ *
+ * 点击：
+ *     记录起点
+ *
+ * 后续如果发生移动：
+ *     就变成框选查询区域
  * ========================================================= */
 static gboolean map_button_press_callback(
     GtkWidget *widget,
@@ -506,127 +606,35 @@ static gboolean map_button_press_callback(
     MapView *view =
         (MapView *)data;
 
-
-    /*
-     * 只处理鼠标左键
-     */
-    if (event->button != 1) {
+    if (event->button != 1)
         return FALSE;
-    }
 
 
-    printf(
-        "鼠标点击：x=%f y=%f\n",
-        event->x,
-        event->y
-    );
+    view->query_selecting = TRUE;
 
+    view->drag_start_x =
+        event->x;
 
-    /*
-     * 找到最近节点
-     */
-    int node_index =
-        find_nearest_node(
-            view,
-            event->x,
-            event->y
-        );
+    view->drag_start_y =
+        event->y;
 
-    if (node_index < 0) {
-        return FALSE;
-    }
+    view->drag_end_x =
+        event->x;
 
-
-    printf(
-        "最近节点：%d\n",
-        node_index
-    );
+    view->drag_end_y =
+        event->y;
 
 
     /*
-     * 增加一个 Order
-     *
-     * 注意：
-     * realloc 之后 orders 的地址
-     * 可能发生变化。
+     * 开始新的框选时，
+     * 清除之前的查询结果。
      */
-    Order *new_orders =
-        realloc(
-            view->orders,
-            (view->order_count + 1)
-            * sizeof(Order)
-        );
+    free(view->query_results);
 
-    if (new_orders == NULL) {
+    view->query_results = NULL;
+    view->query_result_count = 0;
 
-        gtk_label_set_text(
-            GTK_LABEL(view->status_label),
-            "创建订单失败"
-        );
-
-        return FALSE;
-    }
-
-    view->orders =
-        new_orders;
-
-
-    /*
-     * 创建新订单
-     *
-     * Order.id 从 1 开始
-     */
-    int index =
-        view->order_count;
-
-    view->orders[index].id =
-        index + 1;
-
-    /*
-     * node_index 是 0-based
-     *
-     * Order.pointid 是 1-based
-     *
-     * 所以 +1
-     */
-    view->orders[index].pointid =
-        node_index + 1;
-
-
-    view->order_count++;
-
-
-    /*
-     * 订单数组发生了 realloc，
-     * 所以必须重新建立 R-tree。
-     *
-     * 不能直接向旧 R-tree 插入，
-     * 因为旧 R-tree 中的 Order *
-     * 可能已经失效。
-     */
-    rebuild_rtree(view);
-
-
-    printf(
-        "创建订单：id=%d pointid=%d\n",
-        view->orders[index].id,
-        view->orders[index].pointid
-    );
-
-
-    char status[100];
-
-    snprintf(
-        status,
-        sizeof(status),
-        "当前订单：%d",
-        view->order_count
-    );
-
-    gtk_label_set_text(
-        GTK_LABEL(view->status_label),
-        status
-    );
+    view->query_area_valid = FALSE;
 
 
     gtk_widget_queue_draw(
@@ -638,21 +646,286 @@ static gboolean map_button_press_callback(
 
 
 /* =========================================================
- * 9. R-tree 查询
+ * 10. 鼠标移动
  *
- * 当前先查询整个地图。
+ * 如果正在按住左键，
+ * 更新矩形右下角。
+ * ========================================================= */
+static gboolean map_motion_callback(
+    GtkWidget *widget,
+    GdkEventMotion *event,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    if (!view->query_selecting)
+        return FALSE;
+
+
+    view->drag_end_x =
+        event->x;
+
+    view->drag_end_y =
+        event->y;
+
+
+    gtk_widget_queue_draw(
+        view->drawing_area
+    );
+
+    return TRUE;
+}
+
+
+/* =========================================================
+ * 11. 鼠标松开
  *
- * 这一步主要是验证：
+ * 判断：
  *
- * GUI
- *   ↓
- * Order
- *   ↓
- * R-tree
- *   ↓
- * query
+ *     如果移动距离很小
+ *         → 普通点击
+ *         → 创建订单
  *
- * 后面再把它改成鼠标框选区域。
+ *     如果移动距离明显
+ *         → 框选查询区域
+ * ========================================================= */
+static gboolean map_button_release_callback(
+    GtkWidget *widget,
+    GdkEventButton *event,
+    gpointer data)
+{
+    MapView *view =
+        (MapView *)data;
+
+    if (event->button != 1)
+        return FALSE;
+
+
+    view->drag_end_x =
+        event->x;
+
+    view->drag_end_y =
+        event->y;
+
+
+    view->query_selecting = FALSE;
+
+
+    /*
+     * 计算鼠标移动距离
+     */
+    double dx =
+        view->drag_end_x -
+        view->drag_start_x;
+
+    double dy =
+        view->drag_end_y -
+        view->drag_start_y;
+
+    double distance =
+        sqrt(dx * dx + dy * dy);
+
+
+    /*
+     * 移动距离小于 5 像素：
+     *
+     * 认为这是普通点击。
+     */
+    if (distance < 5.0) {
+
+        /*
+         * 找到最近节点
+         */
+        int node_index =
+            find_nearest_node(
+                view,
+                event->x,
+                event->y
+            );
+
+        if (node_index < 0)
+            return TRUE;
+
+
+        /*
+         * 增加 Order
+         */
+        Order *new_orders =
+            realloc(
+                view->orders,
+                (view->order_count + 1)
+                * sizeof(Order)
+            );
+
+        if (new_orders == NULL) {
+
+            gtk_label_set_text(
+                GTK_LABEL(view->status_label),
+                "创建订单失败"
+            );
+
+            return TRUE;
+        }
+
+        view->orders =
+            new_orders;
+
+
+        int index =
+            view->order_count;
+
+        view->orders[index].id =
+            index + 1;
+
+        view->orders[index].pointid =
+            node_index + 1;
+
+        view->order_count++;
+
+
+        /*
+         * 订单数组地址可能发生变化，
+         * 所以重新建立 R-tree。
+         */
+        rebuild_rtree(view);
+
+
+        printf(
+            "创建订单：id=%d pointid=%d\n",
+            view->orders[index].id,
+            view->orders[index].pointid
+        );
+
+
+        char status[100];
+
+        snprintf(
+            status,
+            sizeof(status),
+            "当前订单：%d",
+            view->order_count
+        );
+
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            status
+        );
+
+
+        gtk_widget_queue_draw(
+            view->drawing_area
+        );
+
+        return TRUE;
+    }
+
+
+    /*
+     * ================================================
+     * 真正的拖拽：
+     * 建立 R-tree 查询区域
+     * ================================================
+     */
+
+    double width =
+        gtk_widget_get_allocated_width(
+            view->drawing_area);
+
+    double height =
+        gtk_widget_get_allocated_height(
+            view->drawing_area);
+
+
+    /*
+     * 把屏幕坐标转换成地图坐标
+     */
+    double map_x1 =
+        to_map_x(
+            view,
+            view->drag_start_x,
+            width
+        );
+
+    double map_y1 =
+        to_map_y(
+            view,
+            view->drag_start_y,
+            height
+        );
+
+    double map_x2 =
+        to_map_x(
+            view,
+            view->drag_end_x,
+            width
+        );
+
+    double map_y2 =
+        to_map_y(
+            view,
+            view->drag_end_y,
+            height
+        );
+
+
+    /*
+     * 因为用户可以从左上往右下，
+     * 也可以从右下往左上拖，
+     *
+     * 所以需要重新计算 min/max。
+     */
+    view->query_mbr.min_x =
+        MIN(map_x1, map_x2);
+
+    view->query_mbr.max_x =
+        MAX(map_x1, map_x2);
+
+    view->query_mbr.min_y =
+        MIN(map_y1, map_y2);
+
+    view->query_mbr.max_y =
+        MAX(map_y1, map_y2);
+
+
+    view->query_area_valid = TRUE;
+
+
+    /*
+     * 打印查询区域，
+     * 方便调试。
+     */
+    printf("\n");
+    printf("===== 设置 R-tree 查询区域 =====\n");
+
+    printf(
+        "(%f, %f) ~ (%f, %f)\n",
+        view->query_mbr.min_x,
+        view->query_mbr.min_y,
+        view->query_mbr.max_x,
+        view->query_mbr.max_y
+    );
+
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        "查询区域已设置，请点击“R树查询”"
+    );
+
+
+    gtk_widget_queue_draw(
+        view->drawing_area
+    );
+
+
+    return TRUE;
+}
+
+
+/* =========================================================
+ * 12. R-tree 查询
+ *
+ * 使用鼠标拖拽得到的 MBR。
  * ========================================================= */
 static void query_rtree_callback(
     GtkWidget *button,
@@ -660,6 +933,7 @@ static void query_rtree_callback(
 {
     MapView *view =
         (MapView *)data;
+
 
     if (view->rtree == NULL ||
         view->rtree->root == NULL)
@@ -674,28 +948,21 @@ static void query_rtree_callback(
 
 
     /*
-     * 查询整个地图范围
+     * 用户还没有设置查询区域
      */
-    MBR query;
+    if (!view->query_area_valid) {
 
-    query.min_x =
-        view->min_x;
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "请先在地图上拖拽设置查询区域"
+        );
 
-    query.min_y =
-        view->min_y;
-
-    query.max_x =
-        view->max_x;
-
-    query.max_y =
-        view->max_y;
+        return;
+    }
 
 
     /*
-     * 最多保存 2000 个结果。
-     *
-     * 你的项目目前订单数量远低于这个值，
-     * 所以足够。
+     * 最多保存 2000 个结果
      */
     Order *results[2000];
 
@@ -703,12 +970,48 @@ static void query_rtree_callback(
     int count =
         rtree_query(
             view->rtree->root,
-            query,
+            view->query_mbr,
             results,
             2000
         );
 
 
+    /*
+     * 保存查询结果，
+     * 用于 GUI 高亮。
+     */
+    free(view->query_results);
+
+    view->query_results = NULL;
+    view->query_result_count = 0;
+
+
+    if (count > 0) {
+
+        view->query_results =
+            malloc(
+                count * sizeof(Order *)
+            );
+
+        if (view->query_results != NULL) {
+
+            for (int i = 0;
+                 i < count;
+                 i++)
+            {
+                view->query_results[i] =
+                    results[i];
+            }
+
+            view->query_result_count =
+                count;
+        }
+    }
+
+
+    /*
+     * 终端输出
+     */
     printf("\n");
     printf("============================\n");
     printf("R-tree 查询\n");
@@ -717,10 +1020,10 @@ static void query_rtree_callback(
     printf(
         "查询区域：\n"
         "(%f, %f) ~ (%f, %f)\n",
-        query.min_x,
-        query.min_y,
-        query.max_x,
-        query.max_y
+        view->query_mbr.min_x,
+        view->query_mbr.min_y,
+        view->query_mbr.max_x,
+        view->query_mbr.max_y
     );
 
     printf(
@@ -757,11 +1060,19 @@ static void query_rtree_callback(
         GTK_LABEL(view->status_label),
         status
     );
+
+
+    /*
+     * 让查询结果立即高亮
+     */
+    gtk_widget_queue_draw(
+        view->drawing_area
+    );
 }
 
 
 /* =========================================================
- * 10. 窗口关闭
+ * 13. 窗口关闭
  * ========================================================= */
 static void destroy_callback(
     GtkWidget *widget,
@@ -772,16 +1083,16 @@ static void destroy_callback(
 
 
     /*
-     * 先释放 R-tree
+     * 注意：
      *
-     * R-tree 中的 child 指向 Order，
-     * 所以这里不能释放 Order。
+     * 现在暂时不能使用 rtree_free()。
+     *
+     * 这里只释放 RTree 外层结构。
+     *
+     * R-tree 内部节点目前由程序结束时
+     * 操作系统统一回收。
      */
     if (view->rtree != NULL) {
-
-        //rtree_free(
-        //    view->rtree
-        //);
 
         free(view->rtree);
 
@@ -790,7 +1101,16 @@ static void destroy_callback(
 
 
     /*
-     * 再释放订单数组
+     * 查询结果只是 Order* 指针数组，
+     * 不拥有 Order。
+     */
+    free(view->query_results);
+
+    view->query_results = NULL;
+
+
+    /*
+     * 释放订单数组
      */
     free_orders(
         view->orders
@@ -804,7 +1124,7 @@ static void destroy_callback(
 
 
 /* =========================================================
- * 11. GUI 主函数
+ * 14. GUI 主函数
  * ========================================================= */
 void gui_start(Graph *graph)
 {
@@ -830,6 +1150,25 @@ void gui_start(Graph *graph)
     view.drawing_area = NULL;
     view.entry = NULL;
     view.status_label = NULL;
+
+    /*
+     * 初始化查询状态
+     */
+    view.query_selecting = FALSE;
+    view.query_area_valid = FALSE;
+
+    view.drag_start_x = 0;
+    view.drag_start_y = 0;
+    view.drag_end_x = 0;
+    view.drag_end_y = 0;
+
+    view.query_mbr.min_x = 0;
+    view.query_mbr.min_y = 0;
+    view.query_mbr.max_x = 0;
+    view.query_mbr.max_y = 0;
+
+    view.query_results = NULL;
+    view.query_result_count = 0;
 
 
     calculate_bounds(&view);
@@ -984,11 +1323,17 @@ void gui_start(Graph *graph)
 
 
     /*
-     * 允许接收鼠标点击事件
+     * 需要：
+     *
+     * BUTTON_PRESS
+     * BUTTON_RELEASE
+     * POINTER_MOTION
      */
     gtk_widget_add_events(
         view.drawing_area,
-        GDK_BUTTON_PRESS_MASK
+        GDK_BUTTON_PRESS_MASK |
+        GDK_BUTTON_RELEASE_MASK |
+        GDK_POINTER_MOTION_MASK
     );
 
 
@@ -1017,12 +1362,34 @@ void gui_start(Graph *graph)
 
 
     /*
-     * 点击地图
+     * 鼠标按下
      */
     g_signal_connect(
         view.drawing_area,
         "button-press-event",
         G_CALLBACK(map_button_press_callback),
+        &view
+    );
+
+
+    /*
+     * 鼠标移动
+     */
+    g_signal_connect(
+        view.drawing_area,
+        "motion-notify-event",
+        G_CALLBACK(map_motion_callback),
+        &view
+    );
+
+
+    /*
+     * 鼠标松开
+     */
+    g_signal_connect(
+        view.drawing_area,
+        "button-release-event",
+        G_CALLBACK(map_button_release_callback),
         &view
     );
 
@@ -1067,4 +1434,3 @@ void gui_start(Graph *graph)
 
     gtk_main();
 }
-
