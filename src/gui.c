@@ -459,6 +459,8 @@ static void do_rtree_query(MapView *view)
 
 static void start_delivery(MapView *view)
 {
+    printf("query_result_count = %d\n",
+       view->query_result_count);//调试
     if (view->query_result_count <= 0) {
 
         gtk_label_set_text(
@@ -516,6 +518,14 @@ static void start_delivery(MapView *view)
             matrix,
             view->query_result_count + 1
         );
+printf("TSP route: ");
+
+for (int i = 0; i < view->route->count; i++) {
+    printf("%d ", view->route->route[i]);
+}//调试
+
+printf("\n");
+
 
     if (view->route == NULL) {
 
@@ -937,6 +947,7 @@ static void draw_delivery_route(
     cairo_t *cr,
     MapView *view)
 {
+   
     if (view->route == NULL)
         return;
 
@@ -965,7 +976,7 @@ static void draw_delivery_route(
 
     cairo_set_line_width(
         cr,
-        3.5
+        2.0
     );
 
     /*
@@ -993,6 +1004,13 @@ static void draw_delivery_route(
                 view,
                 route_b
             );
+printf(
+    "draw route: route[%d]=%d -> route[%d]=%d, graph %d -> %d\n",
+    i, route_a,
+    i + 1, route_b,
+    start, end
+);//调试
+
 
         if (start < 0 ||
             end < 0)
@@ -1023,7 +1041,13 @@ static void draw_delivery_route(
                 n,
                 &path_length
             );
+printf("path: ");
 
+for (int k = 0; k < path_length; k++) {
+    printf("%d ", path[k]);
+}
+
+printf("\n");//调试
         if (path == NULL)
             continue;
 
@@ -2229,4 +2253,6 @@ void gui_start(Graph *graph)
 
     gtk_main();
 }
+
+
 
