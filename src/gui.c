@@ -21,17 +21,34 @@ typedef struct {
     double min_y;
     double max_y;
 
+    /*
+     * 地图显示变换
+     *
+     * scale：
+     *     X、Y统一缩放比例
+     *
+     * offset_x / offset_y：
+     *     地图在窗口中的偏移量
+     */
+    double scale;
+    double offset_x;
+    double offset_y;
+
+
     /* 所有订单 */
     Order *orders;
     int order_count;
 
+
     /* R树 */
     RTree *rtree;
+
 
     /* GUI */
     GtkWidget *drawing_area;
     GtkWidget *entry;
     GtkWidget *status_label;
+
 
     /* 查询框 */
     gboolean query_selecting;
@@ -45,12 +62,15 @@ typedef struct {
 
     MBR query_mbr;
 
+
     /* R树查询结果 */
     Order **query_results;
     int query_result_count;
 
+
     /* TSP最终路线 */
     Route *route;
+
 
     /* 配送中心，0-based */
     int base;
@@ -59,68 +79,200 @@ typedef struct {
 
 
 /* =========================================================
- * 坐标转换
+ * 计算地图到屏幕的变换
+ *
+ * 保证：
+ *
+ * 1. 地图完整显示
+ * 2. X/Y使用相同缩放比例
+ * 3. 地图自动居中
+ * 4. 四周留出边距
+ * ========================================================= */
+
+static void update_transform(
+    MapView *view,
+    double width,
+    double height
+)
+{
+    double map_width =
+        view->max_x - view->min_x;
+
+    double map_height =
+        view->max_y - view->min_y;
+
+
+    /*
+     * 防止除0
+     */
+
+    if (map_width <= 0) {
+        map_width = 1;
+    }
+
+    if (map_height <= 0) {
+        map_height = 1;
+    }
+
+
+    /*
+     * 地图四周留30像素
+     */
+
+    double margin = 30.0;
+
+
+    double available_width =
+        width - 2.0 * margin;
+
+    double available_height =
+        height - 2.0 * margin;
+
+
+    if (available_width <= 0) {
+        available_width = width;
+    }
+
+    if (available_height <= 0) {
+        available_height = height;
+    }
+
+
+    /*
+     * X和Y分别计算缩放比例
+     */
+
+    double scale_x =
+        available_width / map_width;
+
+    double scale_y =
+        available_height / map_height;
+
+
+    /*
+     * 取较小值
+     *
+     * 这样整个地图一定能够放进窗口。
+     */
+
+    view->scale =
+        fmin(scale_x, scale_y);
+
+
+    /*
+     * 地图实际显示尺寸
+     */
+
+    double display_width =
+        map_width * view->scale;
+
+    double display_height =
+        map_height * view->scale;
+
+
+    /*
+     * 居中
+     */
+
+    view->offset_x =
+        (width - display_width) / 2.0;
+
+    view->offset_y =
+        (height - display_height) / 2.0;
+}
+
+
+/* =========================================================
+ * 地图坐标 → 屏幕X
  * ========================================================= */
 
 static double to_screen_x(
     MapView *view,
-    double x,
-    double width
+    double x
 )
 {
     return
+        view->offset_x
+        +
         (x - view->min_x)
-        /
-        (view->max_x - view->min_x)
-        *
-        width;
+        * view->scale;
 }
 
+
+/* =========================================================
+ * 地图坐标 → 屏幕Y
+ *
+ * 地图坐标：
+ *
+ *     Y越大越靠上
+ *
+ * Cairo：
+ *
+ *     Y越大越靠下
+ *
+ * 所以需要翻转。
+ * ========================================================= */
 
 static double to_screen_y(
     MapView *view,
-    double y,
-    double height
+    double y
 )
 {
+    double display_height =
+        (view->max_y - view->min_y)
+        * view->scale;
+
+
     return
-        height
+        view->offset_y
+        +
+        display_height
         -
         (y - view->min_y)
-        /
-        (view->max_y - view->min_y)
-        *
-        height;
+        * view->scale;
 }
 
 
+/* =========================================================
+ * 屏幕X → 地图坐标
+ * ========================================================= */
+
 static double to_map_x(
     MapView *view,
-    double x,
-    double width
+    double x
 )
 {
     return
         view->min_x
         +
-        x / width
-        *
-        (view->max_x - view->min_x);
+        (x - view->offset_x)
+        / view->scale;
 }
 
 
+/* =========================================================
+ * 屏幕Y → 地图坐标
+ * ========================================================= */
+
 static double to_map_y(
     MapView *view,
-    double y,
-    double height
+    double y
 )
 {
+    double display_height =
+        (view->max_y - view->min_y)
+        * view->scale;
+
+
     return
         view->min_y
         +
-        (height - y) / height
-        *
-        (view->max_y - view->min_y);
+        (
+            display_height
+            -
+            (y - view->offset_y)
+        )
+        / view->scale;
 }
 
 
@@ -131,36 +283,42 @@ static double to_map_y(
 static int find_nearest_node(
     MapView *view,
     double sx,
-    double sy,
-    double width,
-    double height
+    double sy
 )
 {
     int nearest = -1;
 
     double min_dist = 1e100;
 
-    for (int i = 0; i < view->graph->sum; i++) {
+
+    for (int i = 0;
+         i < view->graph->sum;
+         i++) {
 
         double x =
             to_screen_x(
                 view,
-                view->graph->points[i].x,
-                width
+                view->graph->points[i].x
             );
+
 
         double y =
             to_screen_y(
                 view,
-                view->graph->points[i].y,
-                height
+                view->graph->points[i].y
             );
 
-        double dx = x - sx;
-        double dy = y - sy;
+
+        double dx =
+            x - sx;
+
+        double dy =
+            y - sy;
+
 
         double dist =
             dx * dx + dy * dy;
+
 
         if (dist < min_dist) {
 
@@ -168,6 +326,7 @@ static int find_nearest_node(
             nearest = i;
         }
     }
+
 
     return nearest;
 }
@@ -215,15 +374,12 @@ static void rebuild_rtree(
         }
     }
 
+
     /*
      * 暂时不调用 rtree_free()
      *
-     * 你之前的 rtree_free()
-     * 会导致内存破坏：
-     *
-     * malloc(): unaligned tcache chunk detected
-     *
-     * 所以这里保持之前能正常运行的方式。
+     * 之前的 rtree_free()
+     * 存在内存破坏问题。
      */
 
     view->rtree->root = NULL;
@@ -254,9 +410,7 @@ static void rebuild_rtree(
 
 static void draw_roads(
     cairo_t *cr,
-    MapView *view,
-    int width,
-    int height
+    MapView *view
 )
 {
     cairo_set_source_rgb(
@@ -265,6 +419,7 @@ static void draw_roads(
         0.75,
         0.75
     );
+
 
     cairo_set_line_width(
         cr,
@@ -283,15 +438,14 @@ static void draw_roads(
         double x1 =
             to_screen_x(
                 view,
-                p->x,
-                width
+                p->x
             );
+
 
         double y1 =
             to_screen_y(
                 view,
-                p->y,
-                height
+                p->y
             );
 
 
@@ -318,15 +472,14 @@ static void draw_roads(
             double x2 =
                 to_screen_x(
                     view,
-                    q->x,
-                    width
+                    q->x
                 );
+
 
             double y2 =
                 to_screen_y(
                     view,
-                    q->y,
-                    height
+                    q->y
                 );
 
 
@@ -336,11 +489,13 @@ static void draw_roads(
                 y1
             );
 
+
             cairo_line_to(
                 cr,
                 x2,
                 y2
             );
+
 
             cairo_stroke(cr);
         }
@@ -354,9 +509,7 @@ static void draw_roads(
 
 static void draw_orders(
     cairo_t *cr,
-    MapView *view,
-    int width,
-    int height
+    MapView *view
 )
 {
     for (int i = 0;
@@ -384,15 +537,14 @@ static void draw_orders(
         double x =
             to_screen_x(
                 view,
-                p->x,
-                width
+                p->x
             );
+
 
         double y =
             to_screen_y(
                 view,
-                p->y,
-                height
+                p->y
             );
 
 
@@ -409,6 +561,7 @@ static void draw_orders(
                 0.1
             );
 
+
             cairo_arc(
                 cr,
                 x,
@@ -418,8 +571,10 @@ static void draw_orders(
                 2 * M_PI
             );
 
+
             cairo_fill(cr);
         }
+
 
         /*
          * 普通订单：蓝色
@@ -434,6 +589,7 @@ static void draw_orders(
                 0.9
             );
 
+
             cairo_arc(
                 cr,
                 x,
@@ -442,6 +598,7 @@ static void draw_orders(
                 0,
                 2 * M_PI
             );
+
 
             cairo_fill(cr);
         }
@@ -455,9 +612,7 @@ static void draw_orders(
 
 static void draw_base(
     cairo_t *cr,
-    MapView *view,
-    int width,
-    int height
+    MapView *view
 )
 {
     if (view->base < 0 ||
@@ -473,15 +628,14 @@ static void draw_base(
     double x =
         to_screen_x(
             view,
-            p->x,
-            width
+            p->x
         );
+
 
     double y =
         to_screen_y(
             view,
-            p->y,
-            height
+            p->y
         );
 
 
@@ -527,6 +681,7 @@ static void draw_query_area(
             view->drag_end_x
         );
 
+
     double top =
         fmin(
             view->drag_start_y,
@@ -539,6 +694,7 @@ static void draw_query_area(
             view->drag_end_x -
             view->drag_start_x
         );
+
 
     double height =
         fabs(
@@ -577,21 +733,26 @@ static void draw_query_area(
 /* =========================================================
  * 绘制TSP配送路线
  *
- * Route中的route[i]不是地图节点ID。
+ * Route中的route[i]：
  *
- * 它是距离矩阵中的下标：
+ *     不是地图节点ID
  *
- * 0 = base
- * 1 = query_results[0]
- * 2 = query_results[1]
- * ...
+ * 而是距离矩阵中的下标：
+ *
+ *     0 = base
+ *     1 = query_results[0]
+ *     2 = query_results[1]
+ *     ...
+ *
+ * 注意：
+ * 目前这里只画两个目标点之间的直线。
+ *
+ * Dijkstra实际计算的是道路网络最短路径。
  * ========================================================= */
 
 static void draw_route(
     cairo_t *cr,
-    MapView *view,
-    int width,
-    int height
+    MapView *view
 )
 {
     if (view->route == NULL) {
@@ -627,30 +788,20 @@ static void draw_route(
          i < view->route->count - 1;
          i++) {
 
-
-        /*
-         * TSP中的两个节点
-         */
-
         int a =
             view->route->route[i];
+
 
         int b =
             view->route->route[i + 1];
 
 
-        /*
-         * 将矩阵下标转换成
-         * Graph中的节点下标
-         */
-
         int point_a;
-
         int point_b;
 
 
         /*
-         * 0 = 配送中心
+         * a
          */
 
         if (a == 0) {
@@ -664,10 +815,12 @@ static void draw_route(
             int index =
                 a - 1;
 
+
             if (index < 0 ||
                 index >= view->query_result_count) {
                 continue;
             }
+
 
             point_a =
                 view->query_results[index]
@@ -676,7 +829,7 @@ static void draw_route(
 
 
         /*
-         * 同理处理b
+         * b
          */
 
         if (b == 0) {
@@ -690,10 +843,12 @@ static void draw_route(
             int index =
                 b - 1;
 
+
             if (index < 0 ||
                 index >= view->query_result_count) {
                 continue;
             }
+
 
             point_b =
                 view->query_results[index]
@@ -716,6 +871,7 @@ static void draw_route(
         Point *p1 =
             &view->graph->points[point_a];
 
+
         Point *p2 =
             &view->graph->points[point_b];
 
@@ -723,30 +879,28 @@ static void draw_route(
         double x1 =
             to_screen_x(
                 view,
-                p1->x,
-                width
+                p1->x
             );
+
 
         double y1 =
             to_screen_y(
                 view,
-                p1->y,
-                height
+                p1->y
             );
 
 
         double x2 =
             to_screen_x(
                 view,
-                p2->x,
-                width
+                p2->x
             );
+
 
         double y2 =
             to_screen_y(
                 view,
-                p2->y,
-                height
+                p2->y
             );
 
 
@@ -775,9 +929,7 @@ static void draw_route(
 
 static void draw_map(
     cairo_t *cr,
-    MapView *view,
-    int width,
-    int height
+    MapView *view
 )
 {
     /*
@@ -791,6 +943,7 @@ static void draw_map(
         0.96
     );
 
+
     cairo_paint(cr);
 
 
@@ -800,9 +953,7 @@ static void draw_map(
 
     draw_roads(
         cr,
-        view,
-        width,
-        height
+        view
     );
 
 
@@ -812,9 +963,7 @@ static void draw_map(
 
     draw_orders(
         cr,
-        view,
-        width,
-        height
+        view
     );
 
 
@@ -824,9 +973,7 @@ static void draw_map(
 
     draw_base(
         cr,
-        view,
-        width,
-        height
+        view
     );
 
 
@@ -841,16 +988,12 @@ static void draw_map(
 
 
     /*
-     * TSP路线
-     *
-     * 最后画，这样路线会显示在地图和订单上面。
+     * TSP路线最后画
      */
 
     draw_route(
         cr,
-        view,
-        width,
-        height
+        view
     );
 }
 
@@ -881,11 +1024,24 @@ static gboolean draw_callback(
         );
 
 
-    draw_map(
-        cr,
+    /*
+     * 根据当前窗口大小重新计算
+     * 地图缩放比例和偏移量。
+     *
+     * 所以窗口改变大小时，
+     * 地图也会自动重新适应。
+     */
+
+    update_transform(
         view,
         width,
         height
+    );
+
+
+    draw_map(
+        cr,
+        view
     );
 
 
@@ -1061,7 +1217,7 @@ static gboolean map_button_press_callback(
 
     /*
      * 查询区域重新选择后，
-     * 原来的路线已经没有意义。
+     * 原来的路线失效。
      */
 
     if (view->route != NULL) {
@@ -1169,25 +1325,11 @@ static gboolean map_button_release_callback(
 
     if (distance < 5.0) {
 
-        int width =
-            gtk_widget_get_allocated_width(
-                widget
-            );
-
-
-        int height =
-            gtk_widget_get_allocated_height(
-                widget
-            );
-
-
         int nearest =
             find_nearest_node(
                 view,
                 event->x,
-                event->y,
-                width,
-                height
+                event->y
             );
 
 
@@ -1243,10 +1385,10 @@ static gboolean map_button_release_callback(
 
 
             /*
-             * 因为orders可能realloc，
-             * R树中的Order*可能失效。
+             * orders可能发生realloc，
+             * 所以R树中的Order*可能失效。
              *
-             * 所以重新建立R树。
+             * 重新建立R树。
              */
 
             rebuild_rtree(view);
@@ -1280,55 +1422,39 @@ static gboolean map_button_release_callback(
 
     /*
      * =====================================================
-     * 拖拽地图
+     * 拖拽选择区域
      * =====================================================
      */
 
-    int width =
-        gtk_widget_get_allocated_width(
-            widget
-        );
-
-
-    int height =
-        gtk_widget_get_allocated_height(
-            widget
-        );
-
-
     /*
-     * 屏幕坐标 → 经纬度
+     * 屏幕坐标 → 地图坐标
      */
 
     double x1 =
         to_map_x(
             view,
-            view->drag_start_x,
-            width
+            view->drag_start_x
         );
 
 
     double y1 =
         to_map_y(
             view,
-            view->drag_start_y,
-            height
+            view->drag_start_y
         );
 
 
     double x2 =
         to_map_x(
             view,
-            view->drag_end_x,
-            width
+            view->drag_end_x
         );
 
 
     double y2 =
         to_map_y(
             view,
-            view->drag_end_y,
-            height
+            view->drag_end_y
         );
 
 
@@ -1495,7 +1621,7 @@ static void query_rtree_callback(
 
 
     /*
-     * 查询结果发生变化，
+     * 查询结果变化，
      * 旧路线失效。
      */
 
@@ -1533,15 +1659,12 @@ static void query_rtree_callback(
 /* =========================================================
  * 开始配送
  *
- * 注意：
- *
- * 这里没有调用make()
- *
- * 而是直接调用你已经验证好的：
+ * 直接调用：
  *
  * generateMatrix()
  * solve_tsp()
  *
+ * 不调用make()
  * ========================================================= */
 
 static void start_delivery_callback(
@@ -1581,7 +1704,7 @@ static void start_delivery_callback(
 
 
     /*
-     * 如果已有路线，释放旧路线
+     * 释放旧路线
      */
 
     if (view->route != NULL) {
@@ -1594,7 +1717,7 @@ static void start_delivery_callback(
 
     /*
      * =====================================================
-     * 你的Dijkstra + 距离矩阵
+     * 生成距离矩阵
      * =====================================================
      */
 
@@ -1631,7 +1754,7 @@ static void start_delivery_callback(
 
     /*
      * =====================================================
-     * 你的TSP
+     * TSP
      * =====================================================
      */
 
@@ -1666,7 +1789,7 @@ static void start_delivery_callback(
 
 
     /*
-     * 输出你的TSP结果
+     * 输出TSP结果
      */
 
     printf(
@@ -1690,13 +1813,9 @@ static void start_delivery_callback(
 
 
     /*
-     * 注意：
-     *
-     * 这里不能free_route()
-     *
-     * 因为GUI还需要route来画图。
+     * route必须保留，
+     * 因为GUI还要用它画路线。
      */
-
 
     char message[128];
 
@@ -1736,8 +1855,6 @@ static void destroy_callback(
 
     /*
      * 暂时不要调用rtree_free()
-     *
-     * 防止之前的内存破坏问题。
      */
 
     if (view->rtree != NULL) {
@@ -1895,15 +2012,16 @@ void gui_start(
      * =====================================================
      * 配送中心
      *
-     * 这里对应你原来的：
+     * Graph内部使用0-based。
      *
-     * int base = local - 1;
+     * 所以：
      *
-     * 假设配送中心的地图节点ID是1，
-     * 那么Graph内部就是0。
+     * 地图节点ID 1
+     *        ↓
+     * Graph下标 0
      *
-     * 如果你的配送中心不是1，
-     * 修改这里即可。
+     * 如果你的配送中心不是节点1，
+     * 只修改这里。
      * =====================================================
      */
 
