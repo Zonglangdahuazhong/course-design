@@ -5,6 +5,7 @@
 #include "map.h"
 #include "order.h"
 #include "dijkstra.h"
+#include "distance.h"
 
 
 // 打印从start到end的最短路径
@@ -126,7 +127,29 @@ int main(void)
 
         printPath(path, start, end);
     }
+    // ============================
+// 测试订单距离矩阵
+// ============================
 
+// 创建距离矩阵
+    double matrix[MAX_ORDERS][MAX_ORDERS];
+
+// 计算所有订单之间的最短距离
+    int result = buildDistanceMatrix( &g, orders, count, matrix );
+
+// 检查是否成功
+    if(result == 0)
+    {
+        printf("距离矩阵生成失败！\n");
+
+
+        free_orders(orders);
+
+        return 1;
+    }
+
+// 打印距离矩阵
+    printDistanceMatrix(matrix, count);
 
     // 5. 释放订单动态内存
     free_orders(orders);
