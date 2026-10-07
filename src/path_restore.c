@@ -1,4 +1,8 @@
 #include <stdio.h>
+#include <stdlib.h>
+#include <stdint.h>
+#include <limits.h>
+#include <math.h>
 #include "path_restore.h"
 #include "dijkstra.h"
 //打印一条路径
