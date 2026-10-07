@@ -54,3 +54,249 @@ void printFullRoute(const Graph *g,const Order orders[],int count ,const int rou
         printf("\n");
      }
 }
+
+static int appendPoint(
+    DeliveryRoute *result,
+    int *capacity,
+    int point
+)
+{
+    // 数组容量不足时扩容
+    if(result->count >= *capacity)
+    {
+        int newCapacity;
+
+        if(*capacity == 0)
+        {
+            newCapacity = 16;
+        }
+        else
+        {
+            if(*capacity > INT_MAX / 2)
+                return 0;
+
+            newCapacity = (*capacity) * 2;
+        }
+
+        if((size_t)newCapacity > SIZE_MAX / sizeof(int))
+            return 0;
+
+        int *newPoints = realloc(
+            result->points,
+            (size_t)newCapacity * sizeof(int)
+        );
+
+        if(newPoints == NULL)
+            return 0;
+
+        result->points = newPoints;
+        *capacity = newCapacity;
+    }
+
+    result->points[result->count] = point;
+
+    result->count++;
+
+    return 1;
+}
+
+int buildFullRoute(
+    const Graph *g,
+    const Order orders[],
+    int count,
+    const int route[],
+    DeliveryRoute *result
+)
+{
+    if(result == NULL)
+        return 0;
+
+    // 调用前result必须是已初始化的空结构体
+    if(result->points != NULL)
+        return 0;
+
+    result->count = 0;
+    result->distance = 0.0;
+
+    if(g == NULL || orders == NULL || route == NULL ||
+       count <= 0 || g->vertexCount <= 0 ||
+       g->vertexCount > MAX)
+    {
+        return 0;
+    }
+
+    int capacity = 0;
+
+    double dist[MAX];
+    int path[MAX];
+    int temp[MAX];
+
+    // 逐段处理TSP路线
+    for(int i = 0; i < count; i++)
+    {
+        int fromOrder = route[i];
+        int toOrder = route[i + 1];
+
+        // 检查订单下标
+        if(fromOrder < 0 || fromOrder >= count ||
+           toOrder < 0 || toOrder >= count)
+            goto fail;
+
+        int start = orders[fromOrder].pointid;
+        int end = orders[toOrder].pointid;
+
+        // 检查地图顶点下标
+        if(start < 0 || start >= g->vertexCount ||
+           end < 0 || end >= g->vertexCount)
+            goto fail;
+
+        // 计算当前两订单之间的道路最短路
+        dijkstra(g, start, dist, path);
+
+        if(dist[end] >= INF)
+            goto fail;
+
+        // 累加每段最短距离
+        result->distance += dist[end];
+
+        // 从终点沿着path[]倒推回起点
+        int length = 0;
+        int current = end;
+
+        while(current != -1 && length < g->vertexCount)
+        {
+            if(current < 0 || current >= g->vertexCount)
+                goto fail;
+
+            temp[length++] = current;
+
+            if(current == start)
+                break;
+
+            current = path[current];
+        }
+
+        // 必须成功回溯到当前起点
+        if(length == 0 || temp[length - 1] != start)
+            goto fail;
+
+        // 将倒序路径恢复成正序并添加到结果
+        for(int j = length - 1; j >= 0; j--)
+        {
+            int point = temp[j];
+
+            // 只跳过相邻路段交界处的重复顶点
+            if(result->count > 0 &&
+               j == length - 1 &&
+               result->points[result->count - 1] == point)
+            {
+                continue;
+            }
+
+            if(!appendPoint(result, &capacity, point))
+                goto fail;
+        }
+    }
+
+    return 1;
+
+fail:
+    freeDeliveryRoute(result);
+    return 0;
+}
+void freeDeliveryRoute(DeliveryRoute *result)
+{
+    if(result == NULL)
+        return;
+
+    free(result->points);
+
+    result->points = NULL;
+    result->count = 0;
+    result->distance = 0.0;
+}
+
+int printDeliveryRoute(
+    const Graph *g,
+    const DeliveryRoute *result,
+    double tspDistance
+)
+{
+    if(g == NULL || result == NULL ||
+       result->points == NULL || result->count <= 0)
+    {
+        return 0;
+    }
+
+    double actualDistance = 0.0;
+
+    printf("\n========== 完整道路路线 ==========\n");
+    printf("经过道路顶点数量：%d\n", result->count);
+
+    for(int i = 0; i < result->count; i++)
+    {
+        int u = result->points[i];
+
+        if(u < 0 || u >= g->vertexCount)
+        {
+            printf("顶点编号错误！\n");
+            return 0;
+        }
+
+        printf("第%d个点：顶点%d 坐标(%.8f, %.8f)\n",
+               i + 1,
+               u,
+               g->vertices[u].x,
+               g->vertices[u].y);
+
+        // 第一个点前面没有道路
+        if(i == 0)
+            continue;
+
+        int v = result->points[i - 1];
+
+        // 在邻接表中查找v到u的道路
+        const Edge *p = g->vertices[v].first;
+
+        double weight = INF;
+
+        while(p != NULL)
+        {
+            if(p->index == u && p->weight < weight)
+            {
+                weight = p->weight;
+            }
+
+            p = p->next;
+        }
+
+        if(weight >= INF)
+        {
+            printf("错误：顶点%d到顶点%d没有直接道路！\n",
+                   v, u);
+            return 0;
+        }
+
+        actualDistance += weight;
+    }
+
+    printf("\n========== 距离验证 ==========\n");
+
+    printf("TSP优化距离：%.2f\n", tspDistance);
+    printf("Dijkstra累计距离：%.2f\n", result->distance);
+    printf("实际边权累计距离：%.2f\n", actualDistance);
+
+    if(!isfinite(tspDistance) ||
+       !isfinite(result->distance) ||
+       !isfinite(actualDistance) ||
+       fabs(tspDistance - result->distance) > 1e-6 ||
+       fabs(result->distance - actualDistance) > 1e-6)
+    {
+        printf("验证失败：三种距离不一致！\n");
+        return 0;
+    }
+
+    printf("验证通过：三种距离一致！\n");
+
+    return 1;
+}
