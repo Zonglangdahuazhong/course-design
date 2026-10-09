@@ -7,18 +7,18 @@
 #include "dijkstra.h"
 //打印一条路径
 static void printOnePath(const Graph *g,int start,int end){
-    double dist[MAX];
-    int path[MAX];
+    double dist[MAX_VERTICES];
+    int path[MAX_VERTICES];
     dijkstra(g,start,dist,path);//调用dijstra算出dist 和path
     if(dist[end]>=INF){
         printf("不可达");
         return;
     }
-    int temp[MAX];//记录当前路径
+    int temp[MAX_VERTICES];//记录当前路径
     int length=0;
     int current =end;
     //从后往前遍历，把路径存入temp
-    while(current !=-1&&length<MAX){
+    while(current !=-1&&length<MAX_VERTICES){
         temp[length]=current;
         length++;
         if(current==start){
@@ -103,14 +103,14 @@ int buildFullRoute( const Graph *g,const Order orders[],int count,const int rout
     result->count = 0;
     result->distance = 0.0;
 
-    if(g == NULL || orders == NULL || route == NULL || count <= 0 || g->vertexCount <= 0 ||g->vertexCount > MAX){
+    if(g == NULL || orders == NULL || route == NULL || count <= 0 || g->vertexCount <= 0 ||g->vertexCount > MAX_VERTICES){
         return 0;
     }
 
     int capacity = 0;
-    double dist[MAX];
-    int path[MAX];
-    int temp[MAX];
+    double dist[MAX_VERTICES];
+    int path[MAX_VERTICES];
+    int temp[MAX_VERTICES];
 
     // 逐段处理TSP路线
     for(int i = 0; i < count; i++){

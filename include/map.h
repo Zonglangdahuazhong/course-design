@@ -1,6 +1,6 @@
 #ifndef CMAP_H
 #define CMAP_H//进行头文件保护
-#define MAX 10000//定义一个MAX
+#define MAX_VERTICES 10000//定义一个MAX
 typedef struct Edge{
     int index;// 指向哪个点
     double weight;//边长
@@ -18,7 +18,7 @@ typedef struct Vertex{
 }Vertex;
 
 typedef struct Graph{
-    Vertex vertices[MAX];//顶点数组
+    Vertex vertices[MAX_VERTICES];//顶点数组
     int vertexCount;//顶点数量
     int edgeCount;//边数量
 }Graph;

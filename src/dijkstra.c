@@ -2,7 +2,7 @@
 #include <stdio.h>
 void dijkstra(const Graph *g,int start ,double dist[], int path []){
     // 初始化
-    int visited[MAX]={0};
+    int visited[MAX_VERTICES]={0};
     // 创建一个标记数组
     for (int i=0; i<g->vertexCount;i++){
         dist[i]=INF;

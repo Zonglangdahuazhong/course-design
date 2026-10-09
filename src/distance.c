@@ -17,8 +17,8 @@ int buildDistanceMatrix(const Graph *g,const Order orders[],int count ,double ma
             return 0;
         }
     }
-    double dist [MAX];
-    int path[MAX];
+    double dist [MAX_VERTICES];
+    int path[MAX_VERTICES];
     for (int i=0;i<count;i++){
         int start= orders[i].pointid;
         dijkstra(g,start,dist,path);

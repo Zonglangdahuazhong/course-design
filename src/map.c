@@ -38,13 +38,13 @@ void initGraph(Graph *c)//初始化图c
     c->vertexCount =0;
 
     c->edgeCount =0;
-    for(int i =0;i<MAX;i++){
+    for(int i =0;i<MAX_VERTICES;i++){
         c->vertices[i].first=NULL;
     }
 }//初始点和边数量都为零，每个点的第一条边为空。
 void addVertex(Graph *c,double x,double y)
 {
-    if(c->vertexCount>=MAX){
+    if(c->vertexCount>=MAX_VERTICES){
         return;
     }//点的数量最大为MAX
     c->vertices[c->vertexCount].id=c->vertexCount;
