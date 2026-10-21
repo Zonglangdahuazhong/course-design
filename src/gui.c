@@ -366,6 +366,91 @@ static void generate_orders(MapView *view,
 
 
 /* ============================================================
+ * 在地图点击位置追加订单
+ * ============================================================ */
+
+static void add_order_at(MapView *view,
+                         double screen_x,
+                         double screen_y)
+{
+    int node = find_nearest_node(
+        view,
+        screen_x,
+        screen_y
+    );
+
+    if (node < 0)
+        return;
+
+    if (view->rtree == NULL) {
+        view->rtree = malloc(sizeof(RTree));
+
+        if (view->rtree == NULL) {
+            gtk_label_set_text(
+                GTK_LABEL(view->status_label),
+                "订单索引创建失败"
+            );
+            return;
+        }
+
+        view->rtree->root = NULL;
+    }
+
+    int new_count = view->order_count + 1;
+    Order *orders = realloc(
+        view->orders,
+        (size_t)new_count * sizeof(Order)
+    );
+
+    if (orders == NULL) {
+        gtk_label_set_text(
+            GTK_LABEL(view->status_label),
+            "订单生成失败"
+        );
+        return;
+    }
+
+    view->orders = orders;
+    view->orders[view->order_count].id = new_count;
+    view->orders[view->order_count].pointid = node + 1;
+    view->order_count = new_count;
+
+    /*
+     * orders 可能因 realloc 移动，必须用新的订单地址重建索引。
+     */
+    view->rtree->root = NULL;
+
+    for (int i = 0; i < view->order_count; i++) {
+        rtree_insert(
+            view->rtree,
+            &view->orders[i],
+            view->graph
+        );
+    }
+
+    if (view->query_results != NULL) {
+        free(view->query_results);
+        view->query_results = NULL;
+    }
+
+    view->query_result_count = 0;
+    view->query_area_valid = FALSE;
+
+    if (view->route != NULL) {
+        free_route(view->route);
+        view->route = NULL;
+    }
+
+    gtk_label_set_text(
+        GTK_LABEL(view->status_label),
+        "已在点击位置生成订单"
+    );
+
+    gtk_widget_queue_draw(view->drawing_area);
+}
+
+
+/* ============================================================
  * R树查询
  * ============================================================ */
 
@@ -1674,6 +1759,20 @@ static gboolean button_release_callback(
 
         view->panning = FALSE;
 
+        double dx = event->x - view->pan_start_x;
+        double dy = event->y - view->pan_start_y;
+        const double click_tolerance = 3.0;
+
+        if (!(event->state & GDK_CONTROL_MASK) &&
+            dx * dx + dy * dy <=
+                click_tolerance * click_tolerance) {
+            add_order_at(
+                view,
+                event->x,
+                event->y
+            );
+        }
+
         return TRUE;
     }
 
@@ -2130,6 +2229,7 @@ void gui_start(Graph *graph)
     GtkWidget *help =
         gtk_label_new(
             "Ctrl+左键拖动：框选区域    "
+            "左键单击：生成订单    "
             "左键拖动：移动地图    "
             "滚轮：缩放"
         );
